@@ -1,0 +1,1044 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/phone_dialer.dart';
+import '../../../../core/contact_name_text.dart';
+import '../../../../app/router.dart';
+import '../../data/admin_orders_service.dart';
+
+class AdminOrderDetailsScreen extends StatefulWidget {
+  final int orderId;
+  const AdminOrderDetailsScreen({super.key, required this.orderId});
+
+  @override
+  State<AdminOrderDetailsScreen> createState() =>
+      _AdminOrderDetailsScreenState();
+}
+
+class _AdminOrderDetailsScreenState extends State<AdminOrderDetailsScreen> {
+  final _service = AdminOrdersService();
+  bool _loading = true;
+  Map<String, dynamic>? _order;
+  List<Map<String, dynamic>> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = true);
+    try {
+      final data = await _service.getOrder(widget.orderId);
+      if (!mounted) return;
+      setState(() {
+        _order = data['order'] as Map<String, dynamic>?;
+        _items = List<Map<String, dynamic>>.from(data['items'] as List);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _snack('خطأ في تحميل الطلب: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _snack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : null),
+    );
+  }
+
+  String _statusText(String status) {
+    switch (status) {
+      case 'pending':
+        return 'معلق';
+      case 'accepted':
+        return 'مقبول';
+      case 'in_progress':
+        return 'جاري التنفيذ';
+      case 'scheduled':
+        return 'تم تحديد موعد';
+      case 'completed':
+        return 'مكتمل';
+      case 'rejected':
+        return 'مرفوض';
+      case 'cancelled':
+        return 'ملغي';
+      default:
+        return status;
+    }
+  }
+
+  String _money(int cents) {
+    final v = cents / 100.0;
+    return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+  }
+
+  String _fmtDate(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    try {
+      final dt = DateTime.parse(raw).toLocal();
+      final h24 = dt.hour;
+      final h12 = h24 == 0 ? 12 : (h24 > 12 ? h24 - 12 : h24);
+      final period = h24 >= 12 ? 'م' : 'ص';
+      final mm = dt.minute.toString().padLeft(2, '0');
+      final dd = dt.day.toString().padLeft(2, '0');
+      final mo = dt.month.toString().padLeft(2, '0');
+      return '$dd-$mo-${dt.year} | $h12:$mm $period';
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  Future<String?> _askText({
+    required String title,
+    required String label,
+    String initial = '',
+    bool multiline = false,
+  }) async {
+    final ctrl = TextEditingController(text: initial);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          minLines: multiline ? 3 : 1,
+          maxLines: multiline ? 5 : 1,
+          decoration: InputDecoration(labelText: label),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('حفظ')),
+        ],
+      ),
+    );
+    if (ok != true) return null;
+    return ctrl.text.trim();
+  }
+
+  Future<void> _accept() async {
+    try {
+      final note =
+          await _askText(title: 'قبول الطلب', label: 'ملاحظة (اختياري)');
+      final data = await _service.acceptOrder(widget.orderId, adminNote: note);
+      if (data['ok'] == true) {
+        _snack('تم قبول الطلب');
+        _load();
+      } else {
+        _snack((data['error'] ?? 'فشل قبول الطلب').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تنفيذ العملية، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _reject() async {
+    final reason =
+        await _askText(title: 'رفض الطلب', label: 'سبب الرفض', multiline: true);
+    if (reason == null || reason.isEmpty) return;
+    try {
+      final data = await _service.rejectOrder(widget.orderId, reason: reason);
+      if (data['ok'] == true) {
+        _snack('تم رفض الطلب');
+        _load();
+      } else {
+        _snack((data['error'] ?? 'فشل رفض الطلب').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تنفيذ العملية، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _schedule() async {
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: DateTime.now(),
+    );
+    if (date == null) return;
+    if (!mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (time == null) return;
+
+    final dt =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    try {
+      final data = await _service.scheduleOrder(
+        widget.orderId,
+        scheduledAtIso: dt.toIso8601String(),
+      );
+      if (!mounted) return;
+      if (data['ok'] == true) {
+        _snack('تم تحديد موعد الصيانة');
+        _load();
+      } else {
+        _snack((data['error'] ?? 'فشل تحديد الموعد').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تنفيذ العملية، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _complete() async {
+    try {
+      final note =
+          await _askText(title: 'إنهاء الصيانة', label: 'ملاحظة (اختياري)');
+      final data =
+          await _service.completeOrder(widget.orderId, adminNote: note);
+      if (data['ok'] == true) {
+        _snack('تم إنهاء الصيانة');
+        _load();
+      } else {
+        _snack((data['error'] ?? 'فشل إنهاء الصيانة').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تنفيذ العملية، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _openChat() async {
+    try {
+      final data = await _service.getOrderChat(widget.orderId);
+      if (!mounted) return;
+
+      if (data['ok'] == true && data['conversation'] is Map) {
+        final conv = Map<String, dynamic>.from(data['conversation'] as Map);
+        final conversationId = conv['id'] as int? ?? 0;
+        if (conversationId <= 0) {
+          _snack('تعذر فتح المحادثة', error: true);
+          return;
+        }
+
+        await Navigator.pushNamed(
+          context,
+          AppRouter.adminChatDetails,
+          arguments: conversationId,
+        );
+      } else {
+        _snack((data['error'] ?? 'تعذر فتح المحادثة').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('خطأ في فتح المحادثة: $e', error: true);
+    }
+  }
+
+  Future<void> _openMap() async {
+    final order = _order;
+    if (order == null) return;
+
+    final lat = order['lat'];
+    final lng = order['lng'];
+    if (lat == null || lng == null) {
+      _snack('لا يوجد موقع محفوظ لهذا العميل', error: true);
+      return;
+    }
+
+    final uri =
+        Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      _snack('تعذر فتح الخرائط', error: true);
+    }
+  }
+
+  Widget _infoTile(String label, String value, {Widget? child}) {
+    if (value.trim().isEmpty && child == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+              width: 130,
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.bold))),
+          Expanded(child: child ?? Text(value)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = _order;
+    final status = order?['status']?.toString() ?? '';
+    final canAccept = status == 'pending';
+    final canReject = status == 'pending';
+    final canSchedule =
+        status == 'pending' || status == 'accepted' || status == 'in_progress';
+    final canComplete = status == 'accepted' ||
+        status == 'in_progress' ||
+        status == 'scheduled';
+
+    return Scaffold(
+      appBar: AppBar(title: Text('تفاصيل الطلب #${widget.orderId}')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : order == null
+              ? const Center(child: Text('الطلب غير موجود'))
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _infoTile(
+                      'العميل',
+                      order['phone'].toString().trim().isNotEmpty
+                          ? order['phone'].toString()
+                          : 'عميل #${order['client_id']}',
+                      child: order['phone'].toString().trim().isNotEmpty
+                          ? InkWell(
+                              onTap: () => PhoneDialer.openDialer(order['phone'].toString()),
+                              child: ContactNameText(
+                                phone: order['phone'].toString(),
+                                fallbackPrefix: null,
+                                style: const TextStyle(
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            )
+                          : null,
+                    ),
+                    _infoTile(
+                      'الهاتف',
+                      order['phone'].toString(),
+                      child: InkWell(
+                        onTap: () =>
+                            PhoneDialer.openDialer(order['phone'].toString()),
+                        child: ContactNameText(
+                          phone: order['phone'].toString(),
+                          fallbackPrefix: null,
+                          style: const TextStyle(
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ),
+                    _infoTile('الحالة', _statusText(status)),
+                    _infoTile('الإجمالي',
+                        '${_money(order['total_cents'] as int)} جنيه'),
+                    _infoTile('المدفوع',
+                        '${_money(order['paid_cents'] as int)} جنيه'),
+                    _infoTile('ملاحظات الأدمن',
+                        (order['admin_note'] ?? '').toString()),
+                    _infoTile(
+                        'سبب الرفض', (order['reject_reason'] ?? '').toString()),
+                    _infoTile('موعد الصيانة',
+                        _fmtDate(order['scheduled_at']?.toString())),
+                    _infoTile('وقت الإنهاء',
+                        _fmtDate(order['completed_at']?.toString())),
+                    const SizedBox(height: 16),
+                    const Text('العناصر المطلوبة',
+                        style: TextStyle(
+
+---SPLIT1---
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import '../../../../app/router.dart';
+import '../../data/admin_machines_service.dart';
+
+class AdminMachinesScreen extends StatefulWidget {
+  const AdminMachinesScreen({super.key});
+
+  @override
+  State<AdminMachinesScreen> createState() => _AdminMachinesScreenState();
+}
+
+class _AdminMachinesScreenState extends State<AdminMachinesScreen> {
+  final _service = AdminMachinesService();
+  bool _loading = true;
+  List<Map<String, dynamic>> _machines = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+    try {
+      final rows = await _service.listMachines();
+      if (!mounted) return;
+      setState(() {
+        _machines = rows;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _snack('خطأ في تحميل المكن: $e', error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _snack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Colors.red : null,
+      ),
+    );
+  }
+
+  int _toCents(String input) {
+    final value = double.tryParse(input.trim().replaceAll(',', '.')) ?? 0;
+    return (value * 100).round();
+  }
+
+  String _fromCents(dynamic cents) {
+    final v = ((cents as num?)?.toDouble() ?? 0) / 100.0;
+    return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+  }
+
+  Map<String, dynamic> _normalizeMachine(Map raw) {
+    return {
+      'id': int.tryParse('${raw['id']}') ?? 0,
+      'name': (raw['name'] ?? '').toString(),
+      'icon': (raw['icon'] ?? '🧵').toString(),
+      'price_cents': int.tryParse('${raw['price_cents']}') ?? 0,
+      'active':
+          raw['active'] == true || '${raw['active']}'.toLowerCase() == 'true',
+      'sort_order': int.tryParse('${raw['sort_order']}') ?? 0,
+    };
+  }
+
+  Future<void> _changePassword() async {
+    final oldCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('تغيير كلمة المرور'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: oldCtrl,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'كلمة المرور الحالية'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'كلمة المرور الجديدة'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                    labelText: 'تأكيد كلمة المرور الجديدة'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final oldPassword = oldCtrl.text.trim();
+    final newPassword = newCtrl.text.trim();
+    final confirmPassword = confirmCtrl.text.trim();
+
+    if (oldPassword.isEmpty || newPassword.length < 8) {
+      _snack('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف', error: true);
+      return;
+    }
+
+    if (newPassword != confirmPassword) {
+      _snack('تأكيد كلمة المرور غير مطابق', error: true);
+      return;
+    }
+
+    try {
+      final data = await _service.changeAdminPassword(
+        oldPassword: oldPassword,
+        newPassword: newPassword,
+      );
+
+      if (data['ok'] == true) {
+        _snack('تم تغيير كلمة المرور بنجاح');
+      } else {
+        _snack((data['error'] ?? 'فشل تغيير كلمة المرور').toString(),
+            error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تحميل البيانات، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _deleteMachine(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('حذف الماكينة'),
+        content: const Text(
+            'هل أنت متأكد؟ إذا كانت الماكينة مستخدمة في طلبات قديمة فسيتم تعطيلها بدل حذفها.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final data = await _service.deleteMachine(id);
+      if (data['ok'] == true) {
+        if (data['deleted'] == true) {
+          _snack('تم حذف الماكينة بنجاح');
+        } else if (data['deactivated'] == true) {
+          _snack('الماكينة مرتبطة بطلبات قديمة، تم تعطيلها بدل حذفها');
+        } else {
+          _snack('تم تنفيذ العملية بنجاح');
+        }
+        await _load();
+      } else {
+        _snack((data['error'] ?? 'فشل حذف الماكينة').toString(), error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تحميل البيانات، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _openForm({Map<String, dynamic>? item}) async {
+    final editing = item != null;
+    final nameCtrl =
+        TextEditingController(text: (item?['name'] ?? '').toString());
+    final iconCtrl =
+        TextEditingController(text: (item?['icon'] ?? '🧵').toString());
+    final priceCtrl =
+        TextEditingController(text: _fromCents(item?['price_cents']));
+    final sortCtrl =
+        TextEditingController(text: (item?['sort_order'] ?? 0).toString());
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: Text(editing ? 'تعديل ماكينة' : 'إضافة ماكينة'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'اسم الماكينة'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: iconCtrl,
+                decoration: const InputDecoration(labelText: 'الأيقونة'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: priceCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'السعر بالجنيه'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: sortCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'ترتيب الظهور'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (editing)
+            TextButton(
+              onPressed: () {
+                Navigator.of(context, rootNavigator: true).pop(false);
+                _deleteMachine((item['id'] as int));
+              },
+              child: const Text('حذف'),
+            ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context, rootNavigator: true).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () =>
+                Navigator.of(context, rootNavigator: true).pop(true),
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final name = nameCtrl.text.trim();
+    final icon = iconCtrl.text.trim().isEmpty ? '🧵' : iconCtrl.text.trim();
+    final priceCents = _toCents(priceCtrl.text);
+    final sortOrder = int.tryParse(sortCtrl.text.trim()) ?? 0;
+
+    if (name.isEmpty) {
+      _snack('اكتب اسم الماكينة', error: true);
+      return;
+    }
+
+    try {
+      if (editing) {
+        final data = await _service.updateMachine(
+          id: (item['id'] as int),
+          name: name,
+          icon: icon,
+          priceCents: priceCents,
+          sortOrder: sortOrder,
+        );
+        if (data['ok'] == true) {
+          _snack('تم تعديل الماكينة بنجاح');
+          await _load();
+        } else {
+          _snack((data['error'] ?? 'فشل التعديل').toString(), error: true);
+        }
+      } else {
+        final data = await _service.createMachine(
+          name: name,
+          icon: icon,
+          priceCents: priceCents,
+          sortOrder: sortOrder,
+        );
+        if (data['ok'] == true) {
+          _snack('تمت إضافة الماكينة بنجاح');
+          await _load();
+        } else {
+          _snack((data['error'] ?? 'فشل الإضافة').toString(), error: true);
+        }
+      }
+    } on DioException catch (e) {
+      final body = e.response?.data;
+      if (e.response?.statusCode == 409 &&
+          body is Map &&
+          body['error'] == 'DUPLICATE_MACHINE') {
+        _snack('هذه الماكينة موجودة بالفعل أو يوجد اسم مشابه لها', error: true);
+      } else {
+        _snack('خطأ: ${e.message}', error: true);
+      }
+    } catch (e) {
+      _snack('تعذر تحميل البيانات، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<void> _toggle(int id) async {
+    try {
+      final data = await _service.toggleMachine(id);
+      if (data['ok'] == true && data['machine'] is Map) {
+        final updated = _normalizeMachine(data['machine'] as Map);
+
+        if (!mounted) return;
+        setState(() {
+          _machines = _machines.map((m) {
+            if ((m['id'] as int) == (updated['id'] as int)) {
+              return updated;
+            }
+            return m;
+          }).toList();
+        });
+
+        final active = updated['active'] == true;
+        _snack(active ? 'تمت إعادة إظهار الماكينة' : 'تم إخفاء الماكينة');
+      } else {
+        _snack((data['error'] ?? 'فشل تحديث الحالة').toString(), error: true);
+
+---SPLIT2---
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../../../../config/app_config.dart';
+import '../../../announcement/data/announcement_service.dart';
+import '../../data/admin_posts_service.dart';
+
+class AdminPostsScreen extends StatefulWidget {
+  const AdminPostsScreen({super.key});
+
+  @override
+  State<AdminPostsScreen> createState() => _AdminPostsScreenState();
+}
+
+class _AdminPostsScreenState extends State<AdminPostsScreen> {
+  final _postsService = AdminPostsService();
+  final _announcementService = AnnouncementService();
+
+  bool _loading = true;
+  String? _announcementMessage;
+  List<Map<String, dynamic>> _posts = const [];
+
+  String _absoluteUrl(String? raw) {
+    final value = (raw ?? '').trim();
+    if (value.isEmpty) return '';
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    var baseUrl = AppConfig.apiBaseUrl;
+    if (baseUrl.endsWith('/api')) {
+      baseUrl = baseUrl.substring(0, baseUrl.length - 4);
+    }
+    return '$baseUrl$value';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final ann = await _announcementService.getAnnouncement();
+      final posts = await _postsService.listAdminPosts();
+      if (!mounted) return;
+      final raw = ann['announcement'];
+      setState(() {
+        _announcementMessage =
+            raw is Map ? (raw['message'] ?? '').toString() : null;
+        _posts = posts;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _editAnnouncement() async {
+    final ctrl = TextEditingController(text: _announcementMessage ?? '');
+    final action = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('تنبيه الإدارة'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: 'اكتب آخر تنبيه فقط'),
+        ),
+        actions: [
+          if ((_announcementMessage ?? '').trim().isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'clear'),
+              child: const Text('مسح'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'save'),
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || action == null || action == 'cancel') return;
+
+    try {
+      if (action == 'clear') {
+        final res = await _announcementService.clearAnnouncement();
+        if (!mounted) return;
+        if (res['ok'] == true) {
+          setState(() => _announcementMessage = null);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم مسح تنبيه الإدارة')),
+          );
+        }
+        return;
+      }
+
+      final text = ctrl.text.trim();
+      if (text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('اكتب التنبيه أولًا')),
+        );
+        return;
+      }
+
+      final res = await _announcementService.setAnnouncement(text);
+      if (!mounted) return;
+      if (res['ok'] == true) {
+        setState(() => _announcementMessage = text);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ تنبيه الإدارة')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تنفيذ العملية، حاول مرة أخرى')),
+      );
+    }
+  }
+
+  Future<void> _addPost() async {
+    final picker = ImagePicker();
+    final msgCtrl = TextEditingController();
+    XFile? picked;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) {
+          return AlertDialog(
+            title: const Text('إعلان جديد'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: msgCtrl,
+                    maxLines: 3,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'الرسالة',
+                      hintText: 'مثال: بسم الله الرحمن الرحيم',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 82,
+                      );
+                      if (file == null) return;
+                      setLocal(() => picked = file);
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label:
+                        Text(picked == null ? 'اختيار صورة' : 'تم اختيار صورة'),
+                  ),
+                  if (picked != null) ...[
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: SizedBox(
+                        height: 190,
+                        width: double.infinity,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(
+                              File(picked!.path),
+                              fit: BoxFit.cover,
+                            ),
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.transparent,
+                                    Color(0x66000000),
+                                    Color(0xCC000000),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (msgCtrl.text.trim().isNotEmpty)
+                              Positioned(
+                                right: 12,
+                                left: 12,
+                                bottom: 12,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withAlpha(145),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Text(
+                                    msgCtrl.text.trim(),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.add),
+                label: const Text('رفع'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (ok != true) return;
+
+    final message = msgCtrl.text.trim();
+    final imagePath = picked?.path;
+
+    if (message.isEmpty && (imagePath ?? '').isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اكتب رسالة أو اختر صورة')),
+      );
+      return;
+    }
+
+    try {
+      final res = await _postsService.createPost(
+        message: message,
+        imagePath: imagePath,
+      );
+      if (!mounted) return;
+      if (res['ok'] == true) {
+        await _refresh();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم رفع الإعلان')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text((res['error'] ?? 'فشل رفع الإعلان').toString())),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تنفيذ العملية، حاول مرة أخرى')),
+      );
+    }
+  }
+
+  Future<void> _deletePost(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('حذف الإعلان'),
+        content: const Text('سيتم حذف الصورة من السيرفر نهائيًا.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      final res = await _postsService.deletePost(id);
+      if (!mounted) return;
+      if (res['ok'] == true) {
+        await _refresh();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حذف الإعلان والصورة من السيرفر')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['error'] ?? 'فشل الحذف').toString())),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تنفيذ العملية، حاول مرة أخرى')),
+      );
+    }
+  }
+
+  Widget _announcementCard() {
+    final text = (_announcementMessage ?? '').trim();
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.campaign_outlined),
+        title: const Text('تنبيه الإدارة'),
+        subtitle: Text(text.isEmpty ? 'لا يوجد تنبيه حاليًا' : text),
+        trailing: const Icon(Icons.edit_outlined),
+        onTap: _editAnnouncement,
+      ),
+    );
+  }
+
+  Widget _postCard(Map<String, dynamic> post) {
+    final imageUrl = _absoluteUrl(post['image_url']?.toString());
+    final message = (post['message'] ?? '').toString().trim();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (imageUrl.isNotEmpty)
+            AspectRatio(
+              aspectRatio: 1.5,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(Icons.broken_image_outlined, size: 42),
+                    ),
+                  ),
+                  Container(
+                    decoration: const BoxDecoration(

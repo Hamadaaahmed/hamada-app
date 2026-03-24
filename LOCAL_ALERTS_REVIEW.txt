@@ -1,0 +1,734 @@
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../config/app_config.dart';
+import 'secure_storage.dart';
+
+class ChatSocketService {
+  ChatSocketService._();
+  static final ChatSocketService I = ChatSocketService._();
+
+  io.Socket? _socket;
+  StreamController<Map<String, dynamic>>? _controller;
+  int? _conversationId;
+  String? _token;
+  String? _role;
+
+  Stream<Map<String, dynamic>> connectAndJoin({
+    required String token,
+    required String role,
+    required int conversationId,
+  }) {
+    final shouldReuse = _socket != null &&
+        _socket!.connected &&
+        _conversationId == conversationId &&
+        _token == token &&
+        _role == role &&
+        _controller != null &&
+        !_controller!.isClosed;
+
+    if (shouldReuse) {
+      _emitJoin();
+      return _controller!.stream;
+    }
+
+    disconnect();
+
+    _conversationId = conversationId;
+    _token = token;
+    _role = role;
+    _controller = StreamController<Map<String, dynamic>>.broadcast();
+
+    _socket = io.io(
+      AppConfig.chatBaseUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .setPath('/socket.io/')
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .disableAutoConnect()
+          .setTimeout(20000)
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .build(),
+    );
+
+    _socket!.onConnect((_) => _emitJoin());
+    _socket!.onReconnect((_) => _emitJoin());
+
+    _socket!.on('message', (data) {
+      if (data is Map) {
+        final map = Map<String, dynamic>.from(data);
+        map['_event'] = 'message';
+        _controller?.add(map);
+      }
+    });
+
+    _socket!.on('seen', (data) {
+      if (data is Map) {
+        final map = Map<String, dynamic>.from(data);
+        map['_event'] = 'seen';
+        _controller?.add(map);
+      }
+    });
+
+    _socket!.connect();
+    return _controller!.stream;
+  }
+
+  void _emitJoin() {
+    final socket = _socket;
+    final conversationId = _conversationId;
+    if (socket == null || conversationId == null) return;
+    socket.emit('join', {'conversationId': conversationId});
+  }
+
+  void sendMessageEvent(Map<String, dynamic> data) {
+    final payload = Map<String, dynamic>.from(data);
+    final conversationId = int.tryParse(
+            '${payload['conversationId'] ?? payload['conversation_id']}') ??
+        0;
+
+    if (conversationId > 0) {
+      payload['conversationId'] = conversationId;
+      payload['conversation_id'] = conversationId;
+    }
+
+    _socket?.emit('message', payload);
+  }
+
+  Future<String?> getTokenForRole(String role) async {
+    if (role == 'admin' || role == 'supervisor') {
+      return AppStorage.I.getAdminToken();
+    }
+    return AppStorage.I.getClientToken();
+  }
+
+  void disconnect() {
+    _socket?.dispose();
+    _socket?.disconnect();
+    _socket = null;
+    _conversationId = null;
+    _token = null;
+    _role = null;
+    _controller?.close();
+    _controller = null;
+  }
+}
+
+---SPLIT1---
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../config/app_config.dart';
+
+class OrderSocketService {
+  OrderSocketService._();
+  static final OrderSocketService I = OrderSocketService._();
+
+  io.Socket? _socket;
+  StreamController<Map<String, dynamic>>? _controller;
+  String? _token;
+  String? _role;
+  int? _clientId;
+
+  Stream<Map<String, dynamic>> connect({
+    required String token,
+    required String role,
+    int? clientId,
+  }) {
+    final shouldReuse = _socket != null &&
+        _socket!.connected &&
+        _token == token &&
+        _role == role &&
+        _clientId == clientId &&
+        _controller != null &&
+        !_controller!.isClosed;
+
+    if (shouldReuse) {
+      _emitJoinOrders();
+      return _controller!.stream;
+    }
+
+    disconnect();
+
+    _token = token;
+    _role = role;
+    _clientId = clientId;
+    _controller = StreamController<Map<String, dynamic>>.broadcast();
+
+    _socket = io.io(
+      AppConfig.chatBaseUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .setPath('/socket.io/')
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .disableAutoConnect()
+          .setTimeout(20000)
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .build(),
+    );
+
+    _socket!.onConnect((_) => _emitJoinOrders());
+    _socket!.onReconnect((_) => _emitJoinOrders());
+
+    for (final event in ['order_created', 'order_updated', 'orders_changed']) {
+      _socket!.on(event, (data) {
+        if (data is Map) {
+          final map = Map<String, dynamic>.from(data);
+          map['_event'] = event;
+          _controller?.add(map);
+        }
+      });
+    }
+
+    _socket!.connect();
+    return _controller!.stream;
+  }
+
+  void _emitJoinOrders() {
+    final socket = _socket;
+    if (socket == null) return;
+    socket.emit('join_orders', {
+      'role': _role,
+      if ((_clientId ?? 0) > 0) 'clientId': _clientId,
+    });
+  }
+
+  void disconnect() {
+    _socket?.dispose();
+    _socket?.disconnect();
+    _socket = null;
+    _token = null;
+    _role = null;
+    _clientId = null;
+    _controller?.close();
+    _controller = null;
+  }
+}
+
+---SPLIT2---
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../../../core/chat_socket_service.dart';
+import '../../../../core/contact_name_text.dart';
+import '../../data/admin_chat_service.dart';
+
+class AdminChatScreen extends StatefulWidget {
+  final int conversationId;
+
+  const AdminChatScreen({
+    super.key,
+    required this.conversationId,
+  });
+
+  @override
+  State<AdminChatScreen> createState() => _AdminChatScreenState();
+}
+
+class _AdminChatScreenState extends State<AdminChatScreen> {
+  final _service = AdminChatService();
+  final _controller = TextEditingController();
+  final _scroll = ScrollController();
+
+  bool _loading = true;
+  bool _sending = false;
+  Map<String, dynamic>? _conversation;
+  List<Map<String, dynamic>> _messages = [];
+  StreamSubscription<Map<String, dynamic>>? _socketSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _socketSub?.cancel();
+    ChatSocketService.I.disconnect();
+    _controller.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connectSocket() async {
+    final token = await ChatSocketService.I.getTokenForRole('admin');
+    if (token == null || token.isEmpty) return;
+
+    await _socketSub?.cancel();
+    _socketSub = ChatSocketService.I
+        .connectAndJoin(
+          token: token,
+          role: 'admin',
+          conversationId: widget.conversationId,
+        )
+        .listen(_handleSocketEvent);
+  }
+
+  void _handleSocketEvent(Map<String, dynamic> data) {
+    final event = (data['_event'] ?? 'message').toString();
+
+    if (event == 'seen') {
+      final conversationId =
+          int.tryParse('${data['conversationId'] ?? data['conversation_id']}') ??
+              0;
+      if (conversationId != widget.conversationId) return;
+
+      final readerRole =
+          (data['reader_role'] ?? '').toString().trim().toLowerCase();
+      if (readerRole != 'client') return;
+
+      final seenAt = (data['seen_at'] ?? '').toString();
+      if (!mounted) return;
+
+      setState(() {
+        _messages = _messages.map((m) {
+          if (_isAdminSideRole((m['sender_role'] ?? '').toString())) {
+            return {
+              ...m,
+              'read_at':
+                  seenAt.isNotEmpty ? seenAt : (m['read_at'] ?? '').toString(),
+              'seen_at':
+                  seenAt.isNotEmpty ? seenAt : (m['seen_at'] ?? '').toString(),
+              'is_read': true,
+            };
+          }
+          return m;
+        }).toList();
+      });
+      return;
+    }
+
+    if (event != 'message') return;
+
+    final msg = _normalizeMessage(data);
+    if ((int.tryParse('${msg['conversation_id']}') ?? 0) !=
+        widget.conversationId) {
+      return;
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _messages = _mergeMessages(_messages, [msg]);
+    });
+
+    _markSeenSilently();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  Future<void> _markSeenSilently() async {
+    try {
+      await _service.markSeen(widget.conversationId);
+    } catch (_) {}
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = true);
+
+    try {
+      final data = await _service.getMessages(widget.conversationId);
+      if (!mounted) return;
+
+      final list =
+          List<Map<String, dynamic>>.from(data['messages'] as List? ?? const []);
+
+      setState(() {
+        _conversation = data['conversation'] as Map<String, dynamic>?;
+        _messages = _mergeMessages(const [], list);
+      });
+
+      await _connectSocket();
+      await _markSeenSilently();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    } catch (_) {
+      if (!mounted) return;
+      _snack('تعذر تحديث المحادثة، حاول مرة أخرى', error: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Map<String, dynamic> _normalizeMessage(
+    Map<String, dynamic> raw, {
+    String fallbackRole = 'admin',
+    int? fallbackConversationId,
+    String? fallbackText,
+  }) {
+    return {
+      'id': int.tryParse('${raw['id']}') ?? 0,
+      'conversation_id': int.tryParse('${raw['conversation_id']}') ??
+          int.tryParse('${raw['conversationId']}') ??
+          fallbackConversationId ??
+          widget.conversationId,
+      'sender_role': (raw['sender_role'] ?? fallbackRole).toString(),
+      'sender_id': raw['sender_id'] == null
+          ? null
+          : int.tryParse('${raw['sender_id']}'),
+      'text': (raw['text'] ?? fallbackText ?? '').toString(),
+      'created_at': (raw['created_at'] ?? '').toString(),
+      'read_at': (raw['read_at'] ?? raw['seen_at'] ?? '').toString(),
+      'seen_at': (raw['seen_at'] ?? raw['read_at'] ?? '').toString(),
+      'is_read': raw['is_read'] == true ||
+          '${raw['is_read']}'.toLowerCase() == 'true' ||
+          (raw['seen_at'] ?? '').toString().trim().isNotEmpty ||
+          (raw['read_at'] ?? '').toString().trim().isNotEmpty,
+      if (raw['_local_echo'] == true) '_local_echo': true,
+    };
+  }
+
+  DateTime? _tryParseDate(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return null;
+    return DateTime.tryParse(value)?.toUtc();
+  }
+
+  bool _isAdminSideRole(String role) {
+    final value = role.trim().toLowerCase();
+    return value == 'admin' || value == 'supervisor';
+  }
+
+  bool _isLikelySameMessage(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final aRole = (a['sender_role'] ?? '').toString();
+    final bRole = (b['sender_role'] ?? '').toString();
+    final sameSide = _isAdminSideRole(aRole) == _isAdminSideRole(bRole);
+
+    final sameText =
+        (a['text'] ?? '').toString().trim() == (b['text'] ?? '').toString().trim();
+    if (!sameSide || !sameText) return false;
+
+    final aId = int.tryParse('${a['id']}') ?? 0;
+    final bId = int.tryParse('${b['id']}') ?? 0;
+    if (aId > 0 && bId > 0) return aId == bId;
+
+    final aDate = _tryParseDate((a['created_at'] ?? '').toString());
+    final bDate = _tryParseDate((b['created_at'] ?? '').toString());
+    if (aDate == null || bDate == null) return true;
+
+    return aDate.difference(bDate).inSeconds.abs() <= 30;
+  }
+
+  List<Map<String, dynamic>> _mergeMessages(
+    List<Map<String, dynamic>> current,
+    List<Map<String, dynamic>> incoming,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+
+    for (final msg in [...current, ...incoming]) {
+      final normalized = _normalizeMessage(msg);
+      final id = int.tryParse('${normalized['id']}') ?? 0;
+
+      final existingIndex = merged.indexWhere((m) {
+        final existingId = int.tryParse('${m['id']}') ?? 0;
+        if (id > 0 && existingId > 0) return existingId == id;
+        return _isLikelySameMessage(m, normalized);
+      });
+
+      if (existingIndex >= 0) {
+        final existing = merged[existingIndex];
+        merged[existingIndex] = {
+          ...existing,
+          ...normalized,
+          '_local_echo': false,
+        };
+      } else {
+        merged.add(normalized);
+      }
+    }
+
+    merged.sort((a, b) {
+      final aDate = _tryParseDate((a['created_at'] ?? '').toString());
+      final bDate = _tryParseDate((b['created_at'] ?? '').toString());
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return -1;
+      if (bDate == null) return 1;
+      return aDate.compareTo(bDate);
+    });
+
+    return merged;
+  }
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+
+    if (mounted) setState(() => _sending = true);
+
+    try {
+      final res = await _service.sendMessage(
+        conversationId: widget.conversationId,
+        text: text,
+      );
+      if (!mounted) return;
+
+      if (res['ok'] == true) {
+        final raw = res['message'] is Map
+            ? Map<String, dynamic>.from(res['message'] as Map)
+            : <String, dynamic>{};
+
+---SPLIT3---
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../../../core/chat_socket_service.dart';
+import '../../data/client_chat_service.dart';
+
+class ClientChatScreen extends StatefulWidget {
+  const ClientChatScreen({super.key});
+
+  @override
+  State<ClientChatScreen> createState() => _ClientChatScreenState();
+}
+
+class _ClientChatScreenState extends State<ClientChatScreen> {
+  final _service = ClientChatService();
+  final _controller = TextEditingController();
+  final _scroll = ScrollController();
+
+  bool _loading = true;
+  bool _sending = false;
+  int _conversationId = 0;
+  List<Map<String, dynamic>> _messages = [];
+  StreamSubscription<Map<String, dynamic>>? _socketSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _boot();
+  }
+
+  @override
+  void dispose() {
+    _socketSub?.cancel();
+    ChatSocketService.I.disconnect();
+    _controller.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connectSocket() async {
+    final token = await ChatSocketService.I.getTokenForRole('client');
+    if (token == null || token.isEmpty || _conversationId <= 0) return;
+
+    await _socketSub?.cancel();
+    _socketSub = ChatSocketService.I
+        .connectAndJoin(
+          token: token,
+          role: 'client',
+          conversationId: _conversationId,
+        )
+        .listen(_handleSocketEvent);
+  }
+
+  void _handleSocketEvent(Map<String, dynamic> data) {
+    final event = (data['_event'] ?? 'message').toString();
+
+    if (event == 'seen') {
+      final conversationId =
+          int.tryParse('${data['conversationId'] ?? data['conversation_id']}') ??
+              0;
+      if (conversationId != _conversationId) return;
+
+      final readerRole =
+          (data['reader_role'] ?? '').toString().trim().toLowerCase();
+      if (readerRole != 'admin') return;
+
+      final seenAt = (data['seen_at'] ?? '').toString();
+      if (!mounted) return;
+
+      setState(() {
+        _messages = _messages.map((m) {
+          if (_isClientSideRole((m['sender_role'] ?? '').toString())) {
+            return {
+              ...m,
+              'read_at':
+                  seenAt.isNotEmpty ? seenAt : (m['read_at'] ?? '').toString(),
+              'seen_at':
+                  seenAt.isNotEmpty ? seenAt : (m['seen_at'] ?? '').toString(),
+              'is_read': true,
+            };
+          }
+          return m;
+        }).toList();
+      });
+      return;
+    }
+
+    if (event != 'message') return;
+
+    final msg = _normalizeMessage(data);
+    if ((int.tryParse('${msg['conversation_id']}') ?? 0) != _conversationId) {
+      return;
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _messages = _mergeMessages(_messages, [msg]);
+    });
+
+    _markSeenSilently();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  Future<void> _markSeenSilently() async {
+    try {
+      await _service.markSeen();
+    } catch (_) {}
+  }
+
+  Future<void> _boot() async {
+    if (mounted) setState(() => _loading = true);
+
+    try {
+      final conv = await _service.getConversation();
+      if (!mounted) return;
+
+      if (conv['ok'] == true) {
+        final c = conv['conversation'] as Map<String, dynamic>?;
+        _conversationId = int.tryParse('${c?['id']}') ?? 0;
+      }
+
+      await _loadMessages();
+      await _connectSocket();
+      await _markSeenSilently();
+    } catch (_) {
+      if (!mounted) return;
+      _snack('تعذر تحميل الشات، حاول مرة أخرى', error: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Map<String, dynamic> _normalizeMessage(
+    Map<String, dynamic> raw, {
+    String fallbackRole = 'client',
+    int? fallbackConversationId,
+    String? fallbackText,
+  }) {
+    return {
+      'id': int.tryParse('${raw['id']}') ?? 0,
+      'conversation_id': int.tryParse('${raw['conversation_id']}') ??
+          int.tryParse('${raw['conversationId']}') ??
+          fallbackConversationId ??
+          _conversationId,
+      'sender_role': (raw['sender_role'] ?? fallbackRole).toString(),
+      'sender_id': raw['sender_id'] == null
+          ? null
+          : int.tryParse('${raw['sender_id']}'),
+      'text': (raw['text'] ?? fallbackText ?? '').toString(),
+      'created_at': (raw['created_at'] ?? '').toString(),
+      'read_at': (raw['read_at'] ?? raw['seen_at'] ?? '').toString(),
+      'seen_at': (raw['seen_at'] ?? raw['read_at'] ?? '').toString(),
+      'is_read': raw['is_read'] == true ||
+          '${raw['is_read']}'.toLowerCase() == 'true' ||
+          (raw['seen_at'] ?? '').toString().trim().isNotEmpty ||
+          (raw['read_at'] ?? '').toString().trim().isNotEmpty,
+      if (raw['_local_echo'] == true) '_local_echo': true,
+    };
+  }
+
+  DateTime? _tryParseDate(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return null;
+    return DateTime.tryParse(value)?.toUtc();
+  }
+
+  bool _isClientSideRole(String role) {
+    final value = role.trim().toLowerCase();
+    return value == 'client' || value == 'customer' || value == 'user';
+  }
+
+  bool _isLikelySameMessage(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final aRole = (a['sender_role'] ?? '').toString();
+    final bRole = (b['sender_role'] ?? '').toString();
+    final sameSide = _isClientSideRole(aRole) == _isClientSideRole(bRole);
+
+    final sameText =
+        (a['text'] ?? '').toString().trim() == (b['text'] ?? '').toString().trim();
+    if (!sameSide || !sameText) return false;
+
+    final aId = int.tryParse('${a['id']}') ?? 0;
+    final bId = int.tryParse('${b['id']}') ?? 0;
+    if (aId > 0 && bId > 0) return aId == bId;
+
+    final aDate = _tryParseDate((a['created_at'] ?? '').toString());
+    final bDate = _tryParseDate((b['created_at'] ?? '').toString());
+    if (aDate == null || bDate == null) return true;
+
+    return aDate.difference(bDate).inSeconds.abs() <= 30;
+  }
+
+  List<Map<String, dynamic>> _mergeMessages(
+    List<Map<String, dynamic>> current,
+    List<Map<String, dynamic>> incoming,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+
+    for (final msg in [...current, ...incoming]) {
+      final normalized = _normalizeMessage(msg);
+      final id = int.tryParse('${normalized['id']}') ?? 0;
+
+      final existingIndex = merged.indexWhere((m) {
+        final existingId = int.tryParse('${m['id']}') ?? 0;
+        if (id > 0 && existingId > 0) return existingId == id;
+        return _isLikelySameMessage(m, normalized);
+      });
+
+      if (existingIndex >= 0) {
+        final existing = merged[existingIndex];
+        merged[existingIndex] = {
+          ...existing,
+          ...normalized,
+          '_local_echo': false,
+        };
+      } else {
+        merged.add(normalized);
+      }
+    }
+
+    merged.sort((a, b) {
+      final aDate = _tryParseDate((a['created_at'] ?? '').toString());
+      final bDate = _tryParseDate((b['created_at'] ?? '').toString());
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return -1;
+      if (bDate == null) return 1;
+      return aDate.compareTo(bDate);
+    });
+
+    return merged;
+  }
+
+  Future<void> _loadMessages() async {
+    try {
+      final data = await _service.getMessages();
+      if (!mounted) return;
+
+      final list =
+          List<Map<String, dynamic>>.from(data['messages'] as List? ?? const []);
+      setState(() {
+        _conversationId =
+            int.tryParse('${data['conversation_id']}') ?? _conversationId;
+        _messages = _mergeMessages(const [], list);
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    } catch (_) {
+      if (mounted) {
+        _snack('تعذر تحميل الرسائل، حاول مرة أخرى', error: true);
+      }
+    }
+  }
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+
+    if (mounted) setState(() => _sending = true);
+

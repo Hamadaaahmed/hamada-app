@@ -1,0 +1,44 @@
+  Future<List<Map<String, dynamic>>> listMachines() async {
+    try {
+      final res = await ApiClient.I.dio.get('/admin/machines');
+      final root = Map<String, dynamic>.from(res.data as Map);
+
+      if (root['ok'] != true) {
+        throw Exception('bad');
+      }
+
+      final raw = (root['machines'] as List?) ?? const [];
+
+      final list =
+          raw.whereType<Map>().map(_normalizeMachine).toList();
+
+      final rows = list.map((m) {
+        return CachedMachinesCompanion(
+          id: Value(m['id'] as int),
+          name: Value(m['name'].toString()),
+          icon: Value(m['icon'].toString()),
+          priceCents: Value(m['price_cents'] as int),
+          active: Value(m['active'] == true),
+          sortOrder: Value(m['sort_order'] as int),
+          updatedAt: Value(DateTime.now()),
+        );
+      }).toList();
+
+      await DB.I.database.replaceMachines(rows);
+
+      return list;
+    } catch (_) {
+      final cached = await DB.I.database.getMachines();
+
+      return cached.map((m) {
+        return {
+          'id': m.id,
+          'name': m.name,
+          'icon': m.icon,
+          'price_cents': m.priceCents,
+          'active': m.active,
+          'sort_order': m.sortOrder,
+        };
+      }).toList();
+    }
+  }

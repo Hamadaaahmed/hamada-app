@@ -1,0 +1,304 @@
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ..._items.map(
+                      (item) => Card(
+                        child: ListTile(
+                          leading: Text(item['icon'].toString(),
+                              style: const TextStyle(fontSize: 22)),
+                          title: Text(item['machine_name'].toString()),
+                          subtitle: Text(
+                            'الكمية: ${item['qty']} • السعر: ${_money(item['unit_price_cents'] as int)} جنيه',
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (canAccept)
+                          ElevatedButton(
+                              onPressed: _accept,
+                              child: const Text('قبول الطلب')),
+                        if (canReject)
+                          ElevatedButton(
+                              onPressed: _reject,
+                              child: const Text('رفض الطلب')),
+                        if (canSchedule)
+                          ElevatedButton(
+                              onPressed: _schedule,
+                              child: const Text('تحديد موعد')),
+                        if (canComplete)
+                          ElevatedButton(
+                              onPressed: _complete,
+                              child: const Text('إنهاء الصيانة')),
+                        ElevatedButton(
+                            onPressed: _openMap,
+                            child: const Text('موقع العميل')),
+                        ElevatedButton(
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              AppRouter.adminClientAccount,
+                              arguments: order['client_id'],
+                            );
+                          },
+                          child: const Text('حساب العميل'),
+                        ),
+                        ElevatedButton(
+                          onPressed: _openChat,
+                          child: const Text('محادثة العميل'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+    );
+  }
+}
+
+---SPLIT1---
+      }
+    } catch (e) {
+      _snack('تعذر تحميل البيانات، حاول مرة أخرى', error: true);
+    }
+  }
+
+  Future<bool> _handleBack() async {
+    if (!mounted) return false;
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return false;
+    }
+    Navigator.pushReplacementNamed(context, AppRouter.adminHome);
+    return false;
+  }
+
+  Future<void> _logout() async {
+    await AdminMachinesService().logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRouter.adminLogin,
+      (route) => false,
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_machines.isEmpty) {
+      return const Center(
+        child: Text(
+          'لا توجد مكن بعد',
+          style: TextStyle(fontSize: 18),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: 8, bottom: 100),
+        itemCount: _machines.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (_, i) {
+          final item = _machines[i];
+          final active = item['active'] == true;
+
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: ListTile(
+              leading: Text(
+                (item['icon'] ?? '🧵').toString(),
+                style: const TextStyle(fontSize: 24),
+              ),
+              title: Text(
+                (item['name'] ?? '').toString(),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'السعر: ${_fromCents(item['price_cents'])} جنيه\n'
+                  'الترتيب: ${(item['sort_order'] ?? 0)}\n'
+                  'الحالة: ${active ? "مفعلة" : "معطلة"}',
+                ),
+              ),
+              isThreeLine: true,
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: () => _openForm(item: item),
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'تعديل',
+                  ),
+                  IconButton(
+                    onPressed: () => _toggle(item['id'] as int),
+                    icon:
+                        Icon(active ? Icons.visibility_off : Icons.visibility),
+                    tooltip: active ? 'إخفاء' : 'إظهار',
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('المكن والتسعير'),
+          actions: [
+            IconButton(
+              onPressed: _changePassword,
+              icon: const Icon(Icons.lock_outline),
+              tooltip: 'تغيير كلمة المرور',
+            ),
+            IconButton(
+              onPressed: () {
+                Navigator.pushNamed(context, AppRouter.adminOrders);
+              },
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'طلبات الصيانة',
+            ),
+            IconButton(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'تحديث',
+            ),
+            IconButton(
+              onPressed: _logout,
+              icon: const Icon(Icons.logout),
+              tooltip: 'تسجيل خروج',
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _openForm(),
+          child: const Icon(Icons.add),
+        ),
+        body: _buildBody(),
+      ),
+    );
+  }
+}
+
+---SPLIT2---
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.transparent,
+                          Color(0x55000000),
+                          Color(0xCC000000),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (message.isNotEmpty)
+                    Positioned(
+                      right: 12,
+                      left: 12,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withAlpha(145),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          message,
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(message),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _deletePost(post['id'] as int),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('حذف'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('تنبيه الإدارة والإعلانات'),
+        actions: [
+          IconButton(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'تحديث',
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addPost,
+        child: const Icon(Icons.add),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _announcementCard(),
+                const SizedBox(height: 12),
+                const Text(
+                  'إعلانات الإدارة',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (_posts.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('لا توجد إعلانات حالية'),
+                    ),
+                  )
+                else
+                  ..._posts.map(_postCard),
+              ],
+            ),
+    );
+  }
+}

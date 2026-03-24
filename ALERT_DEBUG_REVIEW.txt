@@ -1,0 +1,351 @@
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+class LocalAlertService {
+  LocalAlertService._();
+
+  static final LocalAlertService I = LocalAlertService._();
+
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+
+  bool _ready = false;
+
+  Future<void> init() async {
+    if (_ready) return;
+
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+    );
+
+    await _plugin.initialize(
+      settings: initSettings,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'hamada_alerts',
+            'Hamada Alerts',
+            description:
+                'Local alerts for orders, messages, and notifications',
+            importance: Importance.max,
+            playSound: true,
+          ),
+        );
+
+    _ready = true;
+  }
+
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    await init();
+
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'hamada_alerts',
+          'Hamada Alerts',
+          channelDescription:
+              'Local alerts for orders, messages, and notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+    );
+  }
+}
+
+---SPLIT1---
+import 'local_alert_service.dart';
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../config/app_config.dart';
+import 'secure_storage.dart';
+
+class ChatSocketService {
+  ChatSocketService._();
+  static final ChatSocketService I = ChatSocketService._();
+
+  io.Socket? _socket;
+  StreamController<Map<String, dynamic>>? _controller;
+  int? _conversationId;
+  String? _token;
+  String? _role;
+
+  Stream<Map<String, dynamic>> connectAndJoin({
+    required String token,
+    required String role,
+    required int conversationId,
+  }) {
+    final shouldReuse = _socket != null &&
+        _socket!.connected &&
+        _conversationId == conversationId &&
+        _token == token &&
+        _role == role &&
+        _controller != null &&
+        !_controller!.isClosed;
+
+    if (shouldReuse) {
+      _emitJoin();
+      return _controller!.stream;
+    }
+
+    disconnect();
+
+    _conversationId = conversationId;
+    _token = token;
+    _role = role;
+    _controller = StreamController<Map<String, dynamic>>.broadcast();
+
+    _socket = io.io(
+      AppConfig.chatBaseUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .setPath('/socket.io/')
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .disableAutoConnect()
+          .setTimeout(20000)
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .build(),
+    );
+
+    _socket!.onConnect((_) => _emitJoin());
+    _socket!.onReconnect((_) => _emitJoin());
+
+    _socket!.on('message', (data) {
+      if (data is Map) {
+        final map = Map<String, dynamic>.from(data);
+        map['_event'] = 'message';
+        LocalAlertService.I.show(id: DateTime.now().millisecondsSinceEpoch, title: 'رسالة جديدة', body: 'لديك رسالة جديدة');
+        _controller?.add(map);
+      }
+    });
+
+    _socket!.on('seen', (data) {
+      if (data is Map) {
+        final map = Map<String, dynamic>.from(data);
+        map['_event'] = 'seen';
+        _controller?.add(map);
+      }
+    });
+
+    _socket!.connect();
+    return _controller!.stream;
+  }
+
+  void _emitJoin() {
+    final socket = _socket;
+    final conversationId = _conversationId;
+    if (socket == null || conversationId == null) return;
+    socket.emit('join', {'conversationId': conversationId});
+  }
+
+  void sendMessageEvent(Map<String, dynamic> data) {
+    final payload = Map<String, dynamic>.from(data);
+    final conversationId = int.tryParse(
+            '${payload['conversationId'] ?? payload['conversation_id']}') ??
+        0;
+
+    if (conversationId > 0) {
+      payload['conversationId'] = conversationId;
+      payload['conversation_id'] = conversationId;
+    }
+
+    _socket?.emit('message', payload);
+  }
+
+  Future<String?> getTokenForRole(String role) async {
+    if (role == 'admin' || role == 'supervisor') {
+      return AppStorage.I.getAdminToken();
+    }
+    return AppStorage.I.getClientToken();
+  }
+
+  void disconnect() {
+    _socket?.dispose();
+    _socket?.disconnect();
+    _socket = null;
+    _conversationId = null;
+    _token = null;
+    _role = null;
+    _controller?.close();
+    _controller = null;
+  }
+}
+
+---SPLIT2---
+import 'local_alert_service.dart';
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../config/app_config.dart';
+
+class OrderSocketService {
+  OrderSocketService._();
+  static final OrderSocketService I = OrderSocketService._();
+
+  io.Socket? _socket;
+  StreamController<Map<String, dynamic>>? _controller;
+  String? _token;
+  String? _role;
+  int? _clientId;
+
+  Stream<Map<String, dynamic>> connect({
+    required String token,
+    required String role,
+    int? clientId,
+  }) {
+    final shouldReuse = _socket != null &&
+        _socket!.connected &&
+        _token == token &&
+        _role == role &&
+        _clientId == clientId &&
+        _controller != null &&
+        !_controller!.isClosed;
+
+    if (shouldReuse) {
+      _emitJoinOrders();
+      return _controller!.stream;
+    }
+
+    disconnect();
+
+    _token = token;
+    _role = role;
+    _clientId = clientId;
+    _controller = StreamController<Map<String, dynamic>>.broadcast();
+
+    _socket = io.io(
+      AppConfig.chatBaseUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .setPath('/socket.io/')
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .disableAutoConnect()
+          .setTimeout(20000)
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .build(),
+    );
+
+    _socket!.onConnect((_) => _emitJoinOrders());
+    _socket!.onReconnect((_) => _emitJoinOrders());
+
+    for (final event in ['order_created', 'order_updated', 'orders_changed']) {
+      _socket!.on(event, (data) {
+        if (data is Map) {
+          final map = Map<String, dynamic>.from(data);
+          map['_event'] = event;
+          if (event == 'order_created') {
+            LocalAlertService.I.show(
+              id: DateTime.now().millisecondsSinceEpoch,
+              title: 'طلب جديد',
+              body: 'تم استلام طلب صيانة جديد',
+            );
+          } else if (event == 'order_updated') {
+            LocalAlertService.I.show(
+              id: DateTime.now().millisecondsSinceEpoch,
+              title: 'تحديث طلب',
+              body: 'تم تحديث حالة أحد الطلبات',
+            );
+          }
+          _controller?.add(map);
+        }
+      });
+    }
+
+    _socket!.connect();
+    return _controller!.stream;
+  }
+
+  void _emitJoinOrders() {
+    final socket = _socket;
+    if (socket == null) return;
+    socket.emit('join_orders', {
+      'role': _role,
+      if ((_clientId ?? 0) > 0) 'clientId': _clientId,
+    });
+  }
+
+  void disconnect() {
+    _socket?.dispose();
+    _socket?.disconnect();
+    _socket = null;
+    _token = null;
+    _role = null;
+    _clientId = null;
+    _controller?.close();
+    _controller = null;
+  }
+}
+
+---SPLIT3---
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <application
+        android:label="حمادة صيانة"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>
