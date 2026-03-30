@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -38,6 +39,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (result['ok'] == true) {
+        final token = result['token'];
+        if (token != null && token.toString().isNotEmpty) {
+          await AuthService.saveToken(token.toString());
+        }
+
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const HomeScreen()),
