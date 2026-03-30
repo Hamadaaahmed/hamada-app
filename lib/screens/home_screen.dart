@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/auth_service.dart';
 import '../services/vpn_service.dart';
 import 'login_screen.dart';
@@ -20,7 +21,26 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    VpnService.initialize();
+    setupVpn();
+
+    VpnService.stageNotifier.addListener(() {
+      if (!mounted) return;
+
+      final stage = VpnService.stageNotifier.value;
+      setState(() {
+        statusMessage = stage;
+
+        final lower = stage.toLowerCase();
+        vpnConnected = lower.contains('connected') ||
+            lower.contains('authenticated') ||
+            lower.contains('connected_success');
+      });
+    });
+  }
+
+  Future<void> setupVpn() async {
+    await Permission.notification.request();
+    await VpnService.initialize();
   }
 
   Future<void> logout() async {
@@ -42,26 +62,27 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       if (vpnConnected) {
         await VpnService.disconnect();
-        setState(() {
-          vpnConnected = false;
-          statusMessage = 'تم فصل الاتصال';
-        });
       } else {
         await VpnService.connect();
-        setState(() {
-          vpnConnected = true;
-          statusMessage = 'تم الاتصال بنجاح';
-        });
       }
     } catch (e) {
       setState(() {
         statusMessage = 'فشل الاتصال: ${e.toString()}';
       });
     } finally {
-      setState(() {
-        loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    VpnService.stageNotifier.dispose();
+    VpnService.statusNotifier.dispose();
+    super.dispose();
   }
 
   @override
