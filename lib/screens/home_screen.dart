@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/auth_service.dart';
-import '../services/vpn_service.dart';
+import '../services/external_vpn_service.dart';
 import 'login_screen.dart';
 import 'plans_screen.dart';
 import 'payment_screen.dart';
@@ -14,51 +13,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool vpnConnected = false;
   bool loading = false;
   String statusMessage = 'غير متصل';
-
-  @override
-  void initState() {
-    super.initState();
-    setupVpn();
-
-    VpnService.stageNotifier.addListener(_handleVpnStageChange);
-  }
-
-  void _handleVpnStageChange() {
-    if (!mounted) return;
-
-    final stage = VpnService.stageNotifier.value;
-    final lower = stage.toLowerCase().trim();
-
-    setState(() {
-      statusMessage = stage;
-
-      if (lower == 'connected' ||
-          lower == 'authenticated' ||
-          lower == 'connected_success') {
-        vpnConnected = true;
-        loading = false;
-      } else if (lower == 'disconnected' ||
-          lower == 'disconnect' ||
-          lower == 'noprocess' ||
-          lower == 'nonetwork' ||
-          lower == 'wait_connection') {
-        vpnConnected = false;
-        loading = false;
-      } else if (lower.contains('connect')) {
-        loading = true;
-      } else if (lower.contains('disconnect')) {
-        loading = true;
-      }
-    });
-  }
-
-  Future<void> setupVpn() async {
-    await Permission.notification.request();
-    await VpnService.initialize();
-  }
 
   Future<void> logout() async {
     await AuthService.logout();
@@ -70,38 +26,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> toggleVpn() async {
+  Future<void> openVpnExternally() async {
     setState(() {
       loading = true;
-      statusMessage = vpnConnected ? 'جاري فصل الاتصال...' : 'جاري الاتصال...';
+      statusMessage = 'جاري تجهيز ملف VPN...';
     });
 
     try {
-      if (vpnConnected) {
-        await VpnService.disconnect();
-      } else {
-        await VpnService.connect();
-      }
+      await ExternalVpnService.openExternalVpnApp();
+      setState(() {
+        statusMessage = 'تم فتح ملف VPN في التطبيق الخارجي';
+      });
     } catch (e) {
       setState(() {
+        statusMessage = 'فشل فتح VPN: ${e.toString()}';
+      });
+    } finally {
+      setState(() {
         loading = false;
-        vpnConnected = false;
-        statusMessage = 'فشل الاتصال: ${e.toString()}';
       });
     }
   }
 
   @override
-  void dispose() {
-    VpnService.stageNotifier.removeListener(_handleVpnStageChange);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final buttonText = loading
-        ? 'جاري التنفيذ...'
-        : (vpnConnected ? 'فصل VPN' : 'تشغيل VPN');
+    final buttonText = loading ? 'جاري التنفيذ...' : 'تشغيل VPN';
 
     return Scaffold(
       appBar: AppBar(
@@ -119,10 +68,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              vpnConnected ? Icons.lock : Icons.lock_open,
+            const Icon(
+              Icons.lock_open,
               size: 80,
-              color: vpnConnected ? Colors.green : Colors.grey,
+              color: Colors.grey,
             ),
             const SizedBox(height: 20),
             const Text(
@@ -131,12 +80,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              statusMessage == 'disconnected' ? 'غير متصل' : statusMessage,
+              statusMessage,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 30),
             ElevatedButton(
-              onPressed: loading ? null : toggleVpn,
+              onPressed: loading ? null : openVpnExternally,
               child: Text(buttonText),
             ),
             const SizedBox(height: 10),
