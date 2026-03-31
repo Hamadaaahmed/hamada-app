@@ -23,18 +23,35 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     setupVpn();
 
-    VpnService.stageNotifier.addListener(() {
-      if (!mounted) return;
+    VpnService.stageNotifier.addListener(_handleVpnStageChange);
+  }
 
-      final stage = VpnService.stageNotifier.value;
-      setState(() {
-        statusMessage = stage;
+  void _handleVpnStageChange() {
+    if (!mounted) return;
 
-        final lower = stage.toLowerCase();
-        vpnConnected = lower.contains('connected') ||
-            lower.contains('authenticated') ||
-            lower.contains('connected_success');
-      });
+    final stage = VpnService.stageNotifier.value;
+    final lower = stage.toLowerCase().trim();
+
+    setState(() {
+      statusMessage = stage;
+
+      if (lower == 'connected' ||
+          lower == 'authenticated' ||
+          lower == 'connected_success') {
+        vpnConnected = true;
+        loading = false;
+      } else if (lower == 'disconnected' ||
+          lower == 'disconnect' ||
+          lower == 'noprocess' ||
+          lower == 'nonetwork' ||
+          lower == 'wait_connection') {
+        vpnConnected = false;
+        loading = false;
+      } else if (lower.contains('connect')) {
+        loading = true;
+      } else if (lower.contains('disconnect')) {
+        loading = true;
+      }
     });
   }
 
@@ -67,26 +84,25 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       setState(() {
+        loading = false;
+        vpnConnected = false;
         statusMessage = 'فشل الاتصال: ${e.toString()}';
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
-      }
     }
   }
 
   @override
   void dispose() {
-    VpnService.stageNotifier.dispose();
-    VpnService.statusNotifier.dispose();
+    VpnService.stageNotifier.removeListener(_handleVpnStageChange);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final buttonText = loading
+        ? 'جاري التنفيذ...'
+        : (vpnConnected ? 'فصل VPN' : 'تشغيل VPN');
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('VPN العربي'),
@@ -115,17 +131,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              statusMessage,
+              statusMessage == 'disconnected' ? 'غير متصل' : statusMessage,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 30),
             ElevatedButton(
               onPressed: loading ? null : toggleVpn,
-              child: Text(
-                loading
-                    ? 'جاري التنفيذ...'
-                    : (vpnConnected ? 'فصل VPN' : 'تشغيل VPN'),
-              ),
+              child: Text(buttonText),
             ),
             const SizedBox(height: 10),
             ElevatedButton(
