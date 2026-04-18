@@ -1,0 +1,69 @@
+مراجعة التطبيق والسيرفر - عربي
+=============================
+
+تمت مراجعة سورس التطبيق ونسخة السيرفر مع الحفاظ على نفس الوظائف ونفس أسماء الصفحات والخدمات والربط الحالي مع السيرفر.
+
+ما الذي تم تحسينه في التطبيق
+---------------------------
+1) تحسين الثيم العام ليكون أبسط وأوضح وأقرب للمثال الذي طلبته.
+2) توحيد شكل الصفحات من خلال مكونات واجهة مشتركة.
+3) تحسين الصفحات الأساسية للعميل بدون تغيير الأسماء أو الوظائف:
+   - الرئيسية
+   - طلب صيانة
+   - طلب مكن / طلب قطع غيار
+   - طلباتي
+   - الإشعارات
+   - حسابي
+4) تحسين الصفحات الأساسية للأدمن بدون تغيير منطق العمل:
+   - الرئيسية
+   - طلبات الصيانة
+   - المحادثات
+   - الإشعارات
+5) تحسين التنقل من الإشعارات بحيث يفتح الطلب أو الطلب الآخر أو المحادثة مباشرة عند توفر المعرفات من السيرفر.
+6) الحفاظ على نفس منطق API ونفس روابط الاتصال وعدم تعديل صلاحيات الأدمن/العميل.
+
+ملفات التطبيق التي تم تعديلها أو إضافتها
+--------------------------------------
+- lib/app/ui.dart
+- lib/app/client_bottom_nav.dart
+- lib/app/theme.dart
+- lib/core/app_states.dart
+- lib/core/notification_navigation_service.dart
+- lib/core/firebase_messaging_service.dart
+- lib/core/local_alert_service.dart
+- lib/features/client/presentation/screens/client_home_screen.dart
+- lib/features/client/presentation/screens/client_notifications_screen.dart
+- lib/features/notifications/presentation/screens/notifications_screen.dart
+- lib/features/admin/presentation/screens/admin_home_screen.dart
+- lib/features/admin/presentation/screens/admin_orders_screen.dart
+- lib/features/admin/presentation/screens/admin_chats_screen.dart
+- lib/features/admin/presentation/screens/admin_chat_screen.dart
+- lib/features/client/presentation/screens/client_order_create_screen.dart
+- lib/features/client/presentation/screens/client_other_request_create_screen.dart
+- lib/features/client/presentation/screens/client_orders_screen.dart
+- lib/features/client/presentation/screens/client_account_screen.dart
+
+
+مراجعة السيرفر
+-------------
+تمت مراجعة ملف السيرفر المرفوع ولم أحتج لتعديل أي endpoint أو منطق قاعدة بيانات، لأن المطلوب تم تنفيذه من جهة التطبيق مع بقاء الربط الحالي متوافقًا.
+
+نقاط التوافق التي تمت مراجعتها
+-------------------------------
+- التطبيق ما زال يستخدم نفس روابط الاتصال المعرفة في lib/config/app_config.dart.
+- السيرفر يرسل order_id في إشعارات الطلبات، وهذا متوافق مع الفتح المباشر لصفحة الطلب.
+- السيرفر يرسل other_request_id في إشعارات الطلبات الأخرى، وهذا متوافق مع فتح صفحة الطلب الآخر مباشرة.
+- الشات والسوكت يدعمان conversation_id و conversationId، وتم الحفاظ على هذا التوافق داخل التطبيق.
+- لم يتم تغيير أي شيء في API أو قواعد البيانات أو أسماء الصفحات.
+
+فحوصات تم تنفيذها هنا
+--------------------
+- مراجعة توافق سورس التطبيق مع ملف السيرفر.
+- فحص نحوي لملفات السيرفر الأساسية باستخدام node --check.
+- التأكد من عدم وجود merge conflict markers داخل السورس المعدل.
+
+ملاحظات مهمة
+------------
+- لم يتم تشغيل build Flutter محليًا داخل هذه البيئة لأن Flutter SDK غير متوفر هنا.
+- التعديلات تمت مباشرة على السورس مع الحفاظ على الوظائف الحالية والربط الحالي.
+- ملف السيرفر بقي بدون تعديل لأنه متوافق مع المطلوب.
