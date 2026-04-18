@@ -51,6 +51,11 @@ class NotificationsService {
     }).toList();
   }
 
+  Future<int> unreadCount() async {
+    final rows = await listNotifications();
+    return rows.where((e) => !e.isRead).length;
+  }
+
   Future<Map<String, dynamic>> markRead({int? id, bool all = false}) async {
     final res = await ApiClient.I.dio.post(
       '/admin/notifications/read',
