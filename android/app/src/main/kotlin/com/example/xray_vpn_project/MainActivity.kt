@@ -1,7 +1,7 @@
 package com.example.xray_vpn_project
 
 import android.content.Context
-import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -20,32 +20,29 @@ class MainActivity: FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getDeviceData" -> {
-                        val androidId = Settings.Secure.getString(
-                            contentResolver,
-                            Settings.Secure.ANDROID_ID
-                        )
-
-                        result.success(
-                            mapOf(
-                                "android_id" to androidId,
-                                "brand" to Build.BRAND,
-                                "model" to Build.MODEL,
-                                "device" to Build.DEVICE,
-                                "hardware" to Build.HARDWARE
-                            )
-                        )
+                        val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                        result.success(mapOf(
+                            "android_id" to androidId,
+                            "brand" to Build.BRAND,
+                            "model" to Build.MODEL,
+                            "device" to Build.DEVICE,
+                            "hardware" to Build.HARDWARE
+                        ))
                     }
 
                     "getInstalledApps" -> {
                         val pm = packageManager
-                        val intent = Intent(Intent.ACTION_MAIN, null)
-                        intent.addCategory(Intent.CATEGORY_LAUNCHER)
+                        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            PackageManager.MATCH_DISABLED_COMPONENTS or PackageManager.MATCH_UNINSTALLED_PACKAGES
+                        } else {
+                            PackageManager.GET_META_DATA
+                        }
 
-                        val apps = pm.queryIntentActivities(intent, 0)
+                        val apps = pm.getInstalledApplications(flags)
                             .map {
                                 mapOf(
-                                    "name" to it.loadLabel(pm).toString(),
-                                    "package" to it.activityInfo.packageName
+                                    "name" to pm.getApplicationLabel(it).toString(),
+                                    "package" to it.packageName
                                 )
                             }
                             .distinctBy { it["package"] }
@@ -60,7 +57,6 @@ class MainActivity: FlutterActivity() {
                             .edit()
                             .putStringSet(BYPASS_KEY, packages.toSet())
                             .apply()
-
                         result.success(true)
                     }
 
@@ -68,7 +64,6 @@ class MainActivity: FlutterActivity() {
                         val packages = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                             .getStringSet(BYPASS_KEY, emptySet())
                             ?.toList() ?: emptyList()
-
                         result.success(packages)
                     }
 

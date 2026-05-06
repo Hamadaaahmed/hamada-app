@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/device_service.dart';
 import 'vpn_home_screen.dart';
+import 'subscription_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,7 +22,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final deviceData = await device.getDeviceData();
-      await api.deviceLogin(deviceData);
+      final loginResult = await api.deviceLogin(deviceData);
+
+      if (loginResult['is_active'] == false) {
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+        );
+        return;
+      }
 
       if (!mounted) return;
 
