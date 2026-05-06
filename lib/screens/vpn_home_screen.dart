@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/device_service.dart';
 import 'subscription_screen.dart';
 import 'bypass_apps_screen.dart';
+import 'speed_test_screen.dart';
 import 'package:flutter/services.dart';
 
 class VpnHomeScreen extends StatefulWidget {
@@ -286,6 +287,15 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
             TextButton(
               onPressed: openBypassApps,
               child: Text('تطبيقات خارج VPN (${bypassApps.length})'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SpeedTestScreen()),
+                );
+              },
+              child: const Text('اختبار السرعة'),
             ),
           ],
         ),
