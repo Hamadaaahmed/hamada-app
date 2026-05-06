@@ -111,6 +111,9 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
         await flutterV2ray.stopV2Ray();
 
         tested++;
+
+        // اختبار 10 IP فقط في الدقيقة = انتظار 6 ثواني بين كل IP
+        await Future.delayed(const Duration(seconds: 6));
         if (!mounted) return;
         setState(() {});
       }
