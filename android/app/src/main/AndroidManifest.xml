@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application android:usesCleartextTraffic="true"
-        android:label="xray_vpn_project"
+        android:label="Hamada VPN"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

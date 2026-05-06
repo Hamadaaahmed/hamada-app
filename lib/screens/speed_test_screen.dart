@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../services/api_service.dart';
 import '../services/device_service.dart';
 
@@ -12,80 +13,77 @@ class SpeedTestScreen extends StatefulWidget {
 
 class _SpeedTestScreenState extends State<SpeedTestScreen> {
   final api = ApiService();
-  final device = DeviceService();
+  late final FlutterV2ray flutterV2ray;
 
   bool testing = false;
   int tested = 0;
-  List<String> fastIps = [];
+  List<Map<String, dynamic>> bestIps = [];
 
-  Future<int?> testIp(String ip) async {
-    final start = DateTime.now();
+  @override
+  void initState() {
+    super.initState();
+    flutterV2ray = FlutterV2ray(onStatusChanged: (_) {});
+    flutterV2ray.initializeV2Ray();
+  }
 
-    try {
-      final socket = await Socket.connect(
-        ip,
-        443,
-        timeout: const Duration(milliseconds: 900),
-      );
-      socket.destroy();
-
-      return DateTime.now().difference(start).inMilliseconds;
-    } catch (_) {
-      return null;
+  String replaceVmessAddress(String vmessUrl, String newAddress) {
+    var raw = vmessUrl.substring(8);
+    while (raw.length % 4 != 0) {
+      raw += '=';
     }
+
+    final json = utf8.decode(base64Decode(raw));
+    final data = jsonDecode(json);
+
+    data['add'] = newAddress;
+
+    final encoded = base64Encode(utf8.encode(jsonEncode(data)));
+    return 'vmess://$encoded';
   }
 
   Future<void> startTest() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('اختبار السرعة'),
-        content: const Text(
-          'سيتم اختبار مجموعة IPs مختلفة. قد يستغرق الاختبار وقتاً، وأي IP سريع سيتم حفظه على السيرفر.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('ابدأ'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) return;
+    if (testing) return;
 
     setState(() {
       testing = true;
       tested = 0;
-      fastIps = [];
+      bestIps = [];
     });
 
     try {
-      final deviceData = await device.getDeviceData();
+      final device = await DeviceService().getDeviceData();
+      final deviceId = device['device_id'] ?? '';
+
+      final config = await api.getVpnConfig();
+      final vmess = (config['vmessUrl'] ?? config['config']).toString();
       final ips = await api.getSpeedIps();
 
       for (final ip in ips) {
-        if (!mounted) return;
+        final testVmess = replaceVmessAddress(vmess, ip);
+        final fullConfig = FlutterV2ray.parseFromURL(testVmess).getFullConfiguration();
 
-        final ping = await testIp(ip);
+        int delay = 999999;
+        try {
+          delay = await flutterV2ray.getServerDelay(
+            config: fullConfig,
+            url: 'https://www.gstatic.com/generate_204',
+          );
+        } catch (_) {}
+
         tested++;
 
-        if (ping != null && ping <= 350) {
-          final value = '$ip - ${ping}ms';
+        if (delay > 0 && delay < 1500) {
+          bestIps.add({'ip': ip, 'delay': delay});
+          bestIps.sort((a, b) => a['delay'].compareTo(b['delay']));
+          bestIps = bestIps.take(5).toList();
 
-          if (!fastIps.contains(value)) {
-            fastIps.add(value);
-            await api.saveFastIps(
-              deviceId: deviceData['device_id']!,
-              fastIps: fastIps,
-            );
-          }
+          await api.saveFastIps(
+            deviceId: deviceId,
+            fastIps: bestIps.map((e) => '${e['ip']} - ${e['delay']}ms').toList(),
+          );
         }
 
+        if (!mounted) return;
         setState(() {});
       }
     } catch (e) {
@@ -93,9 +91,10 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('خطأ في الاختبار: $e')),
       );
-    } finally {
-      if (mounted) setState(() => testing = false);
     }
+
+    if (!mounted) return;
+    setState(() => testing = false);
   }
 
   @override
@@ -111,24 +110,26 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
         child: Column(
           children: [
             Text('تم اختبار: $tested IP'),
-            const SizedBox(height: 10),
-            Text('IPs سريعة: ${fastIps.length}'),
+            const SizedBox(height: 12),
+            Text('أسرع IPs: ${bestIps.length}'),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               height: 56,
               child: FilledButton(
                 onPressed: testing ? null : startTest,
-                child: Text(testing ? 'جاري الاختبار...' : 'بدء اختبار السرعة'),
+                child: Text(testing ? 'جاري الاختبار...' : 'بدء اختبار الاتصال الحقيقي'),
               ),
             ),
             const SizedBox(height: 24),
             Expanded(
               child: ListView(
-                children: fastIps.map((ip) => ListTile(
-                  leading: const Icon(Icons.flash_on),
-                  title: Text(ip),
-                )).toList(),
+                children: bestIps.map((e) {
+                  return ListTile(
+                    leading: const Icon(Icons.flash_on),
+                    title: Text('${e['ip']} - ${e['delay']}ms'),
+                  );
+                }).toList(),
               ),
             ),
           ],
