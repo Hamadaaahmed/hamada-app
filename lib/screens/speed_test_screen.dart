@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
@@ -17,12 +18,18 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
 
   bool testing = false;
   int tested = 0;
+  String state = 'DISCONNECTED';
   List<Map<String, dynamic>> bestIps = [];
 
   @override
   void initState() {
     super.initState();
-    flutterV2ray = FlutterV2ray(onStatusChanged: (_) {});
+    flutterV2ray = FlutterV2ray(
+      onStatusChanged: (status) {
+        if (!mounted) return;
+        setState(() => state = status.state);
+      },
+    );
     flutterV2ray.initializeV2Ray();
   }
 
@@ -32,13 +39,18 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
       raw += '=';
     }
 
-    final json = utf8.decode(base64Decode(raw));
-    final data = jsonDecode(json);
-
+    final data = jsonDecode(utf8.decode(base64Decode(raw)));
     data['add'] = newAddress;
 
-    final encoded = base64Encode(utf8.encode(jsonEncode(data)));
-    return 'vmess://$encoded';
+    return 'vmess://${base64Encode(utf8.encode(jsonEncode(data)))}';
+  }
+
+  Future<bool> waitConnected() async {
+    for (int i = 0; i < 10; i++) {
+      if (state == 'CONNECTED') return true;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    return false;
   }
 
   Future<void> startTest() async {
@@ -51,6 +63,9 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
     });
 
     try {
+      final permission = await flutterV2ray.requestPermission();
+      if (!permission) throw Exception('لم يتم السماح بصلاحية VPN');
+
       final device = await DeviceService().getDeviceData();
       final deviceId = device['device_id'] ?? '';
 
@@ -59,30 +74,43 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
       final ips = await api.getSpeedIps();
 
       for (final ip in ips) {
+        await flutterV2ray.stopV2Ray();
+        await Future.delayed(const Duration(seconds: 1));
+
         final testVmess = replaceVmessAddress(vmess, ip);
         final fullConfig = FlutterV2ray.parseFromURL(testVmess).getFullConfiguration();
 
-        int delay = 999999;
+        final watch = Stopwatch()..start();
+
         try {
-          delay = await flutterV2ray.getServerDelay(
+          await flutterV2ray.startV2Ray(
+            remark: 'Speed Test',
             config: fullConfig,
-            url: 'https://www.gstatic.com/generate_204',
+            proxyOnly: false,
+            bypassSubnets: const ['0.0.0.0/0'],
+            notificationDisconnectButtonName: 'قطع',
           );
+
+          final ok = await waitConnected();
+          watch.stop();
+
+          if (ok) {
+            final delay = watch.elapsedMilliseconds;
+
+            bestIps.add({'ip': ip, 'delay': delay});
+            bestIps.sort((a, b) => a['delay'].compareTo(b['delay']));
+            bestIps = bestIps.take(5).toList();
+
+            await api.saveFastIps(
+              deviceId: deviceId,
+              fastIps: bestIps.map((e) => '${e['ip']} - ${e['delay']}ms').toList(),
+            );
+          }
         } catch (_) {}
 
+        await flutterV2ray.stopV2Ray();
+
         tested++;
-
-        if (delay > 0 && delay < 1500) {
-          bestIps.add({'ip': ip, 'delay': delay});
-          bestIps.sort((a, b) => a['delay'].compareTo(b['delay']));
-          bestIps = bestIps.take(5).toList();
-
-          await api.saveFastIps(
-            deviceId: deviceId,
-            fastIps: bestIps.map((e) => '${e['ip']} - ${e['delay']}ms').toList(),
-          );
-        }
-
         if (!mounted) return;
         setState(() {});
       }
@@ -93,8 +121,16 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
       );
     }
 
+    await flutterV2ray.stopV2Ray();
+
     if (!mounted) return;
     setState(() => testing = false);
+  }
+
+  @override
+  void dispose() {
+    flutterV2ray.stopV2Ray();
+    super.dispose();
   }
 
   @override
@@ -110,15 +146,17 @@ class _SpeedTestScreenState extends State<SpeedTestScreen> {
         child: Column(
           children: [
             Text('تم اختبار: $tested IP'),
-            const SizedBox(height: 12),
-            Text('أسرع IPs: ${bestIps.length}'),
+            const SizedBox(height: 8),
+            Text('الحالة: $state'),
+            const SizedBox(height: 8),
+            Text('أسرع 5 IPs: ${bestIps.length}'),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               height: 56,
               child: FilledButton(
                 onPressed: testing ? null : startTest,
-                child: Text(testing ? 'جاري الاختبار...' : 'بدء اختبار الاتصال الحقيقي'),
+                child: Text(testing ? 'جاري الاتصال بكل IP...' : 'بدء اختبار اتصال حقيقي'),
               ),
             ),
             const SizedBox(height: 24),
