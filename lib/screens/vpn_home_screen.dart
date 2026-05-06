@@ -281,10 +281,6 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
             ),
             const SizedBox(height: 12),
             TextButton(
-              onPressed: loading ? null : loadConfig,
-              child: const Text('تحديث الكونفج'),
-            ),
-            TextButton(
               onPressed: openBypassApps,
               child: Text('تطبيقات خارج VPN (${bypassApps.length})'),
             ),
