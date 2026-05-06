@@ -27,6 +27,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   static const MethodChannel _channel = MethodChannel('xray_vpn/device');
   List<String> bypassApps = [];
   String vpnState = 'DISCONNECTED';
+  String appName = 'HAMADA NET vip';
   Timer? subscriptionTimer;
 
   Future<void> loadConfig() async {
@@ -34,7 +35,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
 
     try {
       final result = await api.getVpnConfig();
-      setState(() => config = result);
+      setState(() {
+        config = result;
+        appName = result['appName']?.toString() ?? 'HAMADA NET vip';
+      });
     } catch (e) {
       if (!mounted) return;
 
@@ -87,7 +91,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
       final fullConfig = v2rayUrl.getFullConfiguration();
 
       await flutterV2ray.startV2Ray(
-        remark: 'Hamada VPN',
+        remark: appName,
         config: fullConfig,
         blockedApps: bypassApps,
         proxyOnly: false,
@@ -245,7 +249,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF080B12),
       appBar: AppBar(
-        title: const Text('XRAY / VMESS_WS'),
+        title: Text(appName),
         centerTitle: true,
         backgroundColor: Colors.transparent,
       ),
