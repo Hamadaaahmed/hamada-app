@@ -8,6 +8,7 @@ import 'subscription_screen.dart';
 import 'bypass_apps_screen.dart';
 import 'speed_test_screen.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VpnHomeScreen extends StatefulWidget {
   const VpnHomeScreen({super.key});
@@ -29,6 +30,8 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   String vpnState = 'DISCONNECTED';
   String appName = 'HAMADA NET vip';
   Timer? subscriptionTimer;
+  bool autoConnect = false;
+  bool backgroundMode = false;
 
   Future<void> loadConfig() async {
     setState(() => loading = true);
@@ -61,6 +64,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   }
 
   Future<void> toggleVpn() async {
+    await startOrStopVpn();
+  }
+
+  Future<void> startOrStopVpn() async {
     try {
       if (connected) {
         await flutterV2ray.stopV2Ray();
@@ -124,6 +131,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     );
 
     flutterV2ray.initializeV2Ray();
+    loadSettings();
     loadConfig();
     loadBypassApps();
 
@@ -131,6 +139,40 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
       const Duration(seconds: 10),
       (_) => checkSubscriptionLive(),
     );
+  }
+
+
+  Future<void> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    autoConnect = prefs.getBool('auto_connect') ?? false;
+    backgroundMode = prefs.getBool('background_mode') ?? false;
+
+    if (mounted) setState(() {});
+
+    if (autoConnect) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && !connected) {
+          startOrStopVpn();
+        }
+      });
+    }
+  }
+
+  Future<void> setAutoConnect(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_connect', value);
+    setState(() => autoConnect = value);
+  }
+
+  Future<void> setBackgroundMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('background_mode', value);
+    setState(() => backgroundMode = value);
+
+    if (value) {
+      await _channel.invokeMethod('openBatterySettings');
+    }
   }
 
   Future<void> checkSubscriptionLive() async {
@@ -284,6 +326,17 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            SwitchListTile(
+              value: autoConnect,
+              title: const Text('اتصال تلقائي عند فتح التطبيق'),
+              onChanged: setAutoConnect,
+            ),
+            SwitchListTile(
+              value: backgroundMode,
+              title: const Text('تشغيل في الخلفية'),
+              subtitle: const Text('يفتح إعدادات البطارية للسماح للتطبيق بالعمل بالخلفية'),
+              onChanged: setBackgroundMode,
+            ),
             TextButton(
               onPressed: openBypassApps,
               child: Text('تطبيقات خارج VPN (${bypassApps.length})'),
