@@ -46,4 +46,37 @@ class ApiService {
 
     return Map<String, dynamic>.from(jsonDecode(response.body));
   }
+
+
+  Future<List<String>> getSpeedIps() async {
+    final url = Uri.parse('$baseUrl/speed/ips');
+    final response = await http.get(url);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load speed IPs');
+    }
+
+    final data = Map<String, dynamic>.from(jsonDecode(response.body));
+    return List<String>.from(data['ips'] ?? []);
+  }
+
+  Future<void> saveFastIps({
+    required String deviceId,
+    required List<String> fastIps,
+  }) async {
+    final url = Uri.parse('$baseUrl/speed-results');
+
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'device_id': deviceId,
+        'fast_ips': fastIps,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save fast IPs: ${response.body}');
+    }
+  }
 }
