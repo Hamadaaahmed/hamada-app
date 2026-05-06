@@ -14,6 +14,7 @@ class _BypassAppsScreenState extends State<BypassAppsScreen> {
   bool loading = true;
   List<Map<String, String>> apps = [];
   Set<String> selected = {};
+  String search = '';
 
   @override
   void initState() {
@@ -59,10 +60,34 @@ class _BypassAppsScreenState extends State<BypassAppsScreen> {
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              itemCount: apps.length,
-              itemBuilder: (context, index) {
-                final app = apps[index];
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'بحث عن تطبيق...',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => setState(() => search = value.toLowerCase()),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: apps.where((app) {
+                      final name = (app['name'] ?? '').toLowerCase();
+                      final package = (app['package'] ?? '').toLowerCase();
+                      return name.contains(search) || package.contains(search);
+                    }).length,
+                    itemBuilder: (context, index) {
+                      final filteredApps = apps.where((app) {
+                        final name = (app['name'] ?? '').toLowerCase();
+                        final package = (app['package'] ?? '').toLowerCase();
+                        return name.contains(search) || package.contains(search);
+                      }).toList();
+
+                      final app = filteredApps[index];
                 final package = app['package'] ?? '';
                 final name = app['name'] ?? package;
 
@@ -80,7 +105,10 @@ class _BypassAppsScreenState extends State<BypassAppsScreen> {
                     });
                   },
                 );
-              },
+                    },
+                  ),
+                ),
+              ],
             ),
     );
   }
