@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../services/api_service.dart';
@@ -23,6 +24,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   static const MethodChannel _channel = MethodChannel('xray_vpn/device');
   List<String> bypassApps = [];
   String vpnState = 'DISCONNECTED';
+  Timer? subscriptionTimer;
 
   Future<void> loadConfig() async {
     setState(() => loading = true);
@@ -117,6 +119,43 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     flutterV2ray.initializeV2Ray();
     loadConfig();
     loadBypassApps();
+
+    subscriptionTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => checkSubscriptionLive(),
+    );
+  }
+
+  Future<void> checkSubscriptionLive() async {
+    if (!connected) return;
+
+    try {
+      await api.getVpnConfig();
+    } catch (e) {
+      final msg = e.toString();
+
+      if (msg.contains('subscription expired') || msg.contains('403')) {
+        await flutterV2ray.stopV2Ray();
+
+        if (!mounted) return;
+
+        setState(() {
+          connected = false;
+          vpnState = 'DISCONNECTED';
+        });
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    subscriptionTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> loadBypassApps() async {
