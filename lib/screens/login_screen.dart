@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/device_service.dart';
 import 'vpn_home_screen.dart';
@@ -16,6 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final device = DeviceService();
 
   bool loading = false;
+  String? deviceId;
 
   Future<void> login() async {
     setState(() => loading = true);
@@ -73,6 +75,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 30),
+                if (deviceId != null) ...[
+                  SelectableText(
+                    'Device ID:\n$deviceId',
+                    textAlign: TextAlign.center,
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: deviceId!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم نسخ Device ID')),
+                      );
+                    },
+                    child: const Text('نسخ Device ID'),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 SizedBox(
                   width: double.infinity,
                   height: 56,
