@@ -3,6 +3,7 @@ package com.example.xray_vpn_project
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.WindowManager
 import android.net.Uri
 import android.content.Intent
 import android.provider.Settings
@@ -119,6 +120,14 @@ class MainActivity: FlutterActivity() {
 
                     "securityCheck" -> {
                         result.success(isUnsafeDevice())
+                    }
+
+                    "enableScreenProtection" -> {
+                        window.setFlags(
+                            WindowManager.LayoutParams.FLAG_SECURE,
+                            WindowManager.LayoutParams.FLAG_SECURE
+                        )
+                        result.success(true)
                     }
 
                     else -> result.notImplemented()

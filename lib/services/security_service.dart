@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart';
 import 'package:safe_device/safe_device.dart';
 
 class SecurityService {
@@ -8,7 +7,7 @@ class SecurityService {
 
   static Future<void> enableScreenProtection() async {
     if (Platform.isAndroid) {
-      await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+      await _channel.invokeMethod('enableScreenProtection');
     }
   }
 
