@@ -30,7 +30,41 @@ class MainActivity: FlutterActivity() {
                             "device" to Build.DEVICE,
                             "hardware" to Build.HARDWARE
                         ))
-                    }
+                    
+    private fun isUnsafeDevice(): Boolean {
+        val suspiciousPaths = arrayOf(
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/sbin/su",
+            "/su/bin/su",
+            "/data/adb/magisk",
+            "/data/adb/modules",
+            "/system/app/Superuser.apk"
+        )
+
+        for (path in suspiciousPaths) {
+            if (java.io.File(path).exists()) return true
+        }
+
+        val suspiciousPackages = arrayOf(
+            "com.topjohnwu.magisk",
+            "eu.chainfire.supersu",
+            "com.koushikdutta.superuser",
+            "com.noshufou.android.su",
+            "de.robv.android.xposed.installer",
+            "org.lsposed.manager"
+        )
+
+        for (pkg in suspiciousPackages) {
+            try {
+                packageManager.getPackageInfo(pkg, 0)
+                return true
+            } catch (_: Exception) {}
+        }
+
+        return false
+    }
+}
 
                     "getInstalledApps" -> {
                         val pm = packageManager
@@ -81,6 +115,10 @@ class MainActivity: FlutterActivity() {
                             startActivity(intent)
                             result.success(true)
                         }
+                    }
+
+                    "securityCheck" -> {
+                        result.success(isUnsafeDevice())
                     }
 
                     else -> result.notImplemented()
