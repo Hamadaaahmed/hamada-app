@@ -1,10 +1,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiService {
   static const String baseUrl = 'http://37.60.249.108:3010';
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   static String? _token;
+
+  Future<void> _saveToken(String token) async {
+    _token = token;
+    await _storage.write(key: 'auth_token', value: token);
+  }
+
+  Future<String?> _loadToken() async {
+    _token ??= await _storage.read(key: 'auth_token');
+    return _token;
+  }
 
   Future<Map<String, dynamic>> deviceLogin(Map<String, String> deviceData) async {
     final url = Uri.parse('$baseUrl/auth/device-login');
@@ -20,13 +32,19 @@ class ApiService {
     }
 
     final data = Map<String, dynamic>.from(jsonDecode(response.body));
-    _token = data['token'] ?? data['accessToken'];
+    final token = data['token'] ?? data['accessToken'];
+
+    if (token != null) {
+      await _saveToken(token.toString());
+    }
 
     return data;
   }
 
   Future<Map<String, dynamic>> getVpnConfig() async {
-    if (_token == null) {
+    final token = await _loadToken();
+
+    if (token == null) {
       throw Exception('Not logged in');
     }
 
@@ -35,7 +53,7 @@ class ApiService {
     final response = await http.get(
       url,
       headers: {
-        'Authorization': 'Bearer $_token',
+        'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
     );
@@ -45,38 +63,5 @@ class ApiService {
     }
 
     return Map<String, dynamic>.from(jsonDecode(response.body));
-  }
-
-
-  Future<List<String>> getSpeedIps() async {
-    final url = Uri.parse('$baseUrl/speed/ips');
-    final response = await http.get(url);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load speed IPs');
-    }
-
-    final data = Map<String, dynamic>.from(jsonDecode(response.body));
-    return List<String>.from(data['ips'] ?? []);
-  }
-
-  Future<void> saveFastIps({
-    required String deviceId,
-    required List<String> fastIps,
-  }) async {
-    final url = Uri.parse('$baseUrl/speed-results');
-
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'device_id': deviceId,
-        'fast_ips': fastIps,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to save fast IPs: ${response.body}');
-    }
   }
 }

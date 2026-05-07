@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../services/api_service.dart';
-import '../services/device_service.dart';
 import 'subscription_screen.dart';
 import 'bypass_apps_screen.dart';
 import 'package:flutter/services.dart';
@@ -272,65 +270,6 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     }
   }
 
-
-  Future<int> testIpDelay(String ip) async {
-    final stopwatch = Stopwatch()..start();
-
-    try {
-      final socket = await Socket.connect(
-        ip,
-        443,
-        timeout: const Duration(seconds: 2),
-      );
-
-      socket.destroy();
-      stopwatch.stop();
-      return stopwatch.elapsedMilliseconds;
-    } catch (_) {
-      return 999999;
-    }
-  }
-
-  Future<void> runSpeedTest() async {
-    try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('بدأ اختبار السرعة، قد يستغرق بعض الوقت')),
-      );
-
-      final deviceData = await DeviceService().getDeviceData();
-      final deviceId = deviceData['device_id'] ?? '';
-
-      final ips = await api.getSpeedIps();
-      final List<String> fastIps = [];
-
-      for (final ip in ips) {
-        final delay = await testIpDelay(ip);
-
-        if (delay > 0 && delay < 800) {
-          fastIps.add('$ip - ${delay}ms');
-
-          await api.saveFastIps(
-            deviceId: deviceId,
-            fastIps: fastIps,
-          );
-        }
-
-        if (fastIps.length >= 10) break;
-      }
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حفظ ${fastIps.length} IP سريع')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('فشل اختبار السرعة: $e')),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
