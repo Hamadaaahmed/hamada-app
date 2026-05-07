@@ -1,12 +1,25 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/services.dart';
 
 class ApiService {
   static const String baseUrl = 'http://37.60.249.108:3010';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   static String? _token;
+  static const MethodChannel _channel = MethodChannel('xray_vpn/device');
+
+  Future<Map<String, String>> _secureHeaders({bool auth = false}) async {
+    final signature = await _channel.invokeMethod<String>('getAppSignatureSha256') ?? '';
+    final token = auth ? await _loadToken() : null;
+
+    return {
+      'Content-Type': 'application/json',
+      'X-App-Signature': signature,
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
 
   Future<void> _saveToken(String token) async {
     _token = token;
@@ -23,7 +36,7 @@ class ApiService {
 
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _secureHeaders(),
       body: jsonEncode(deviceData),
     );
 
@@ -52,10 +65,7 @@ class ApiService {
 
     final response = await http.get(
       url,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      headers: await _secureHeaders(auth: true),
     );
 
     if (response.statusCode != 200) {

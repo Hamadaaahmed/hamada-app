@@ -11,6 +11,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.security.MessageDigest
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "xray_vpn/device"
@@ -96,6 +97,10 @@ class MainActivity: FlutterActivity() {
                         result.success(isUnsafeDevice())
                     }
 
+                    "getAppSignatureSha256" -> {
+                        result.success(getAppSignatureSha256())
+                    }
+
                     "enableScreenProtection" -> {
                         window.setFlags(
                             WindowManager.LayoutParams.FLAG_SECURE,
@@ -107,6 +112,30 @@ class MainActivity: FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun getAppSignatureSha256(): String {
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+        }
+
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.signingInfo.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.signatures
+        }
+
+        val cert = signatures[0].toByteArray()
+        val md = MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(cert)
+
+        return digest.joinToString(":") {
+            "%02X".format(it)
+        }
     }
 
     private fun isUnsafeDevice(): Boolean {
