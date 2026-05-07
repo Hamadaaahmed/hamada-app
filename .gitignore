@@ -50,3 +50,6 @@ tmp_xray/
 
 android/app/src/main/assets/xray/
 android/app/src/main/jniLibs/
+
+android/key.properties
+android/keystore/*.jks
