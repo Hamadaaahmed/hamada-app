@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../services/api_service.dart';
+import '../services/device_service.dart';
 import 'subscription_screen.dart';
 import 'bypass_apps_screen.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +28,11 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   String vpnState = 'DISCONNECTED';
   String appName = 'HAMADA NET vip';
   Timer? subscriptionTimer;
+  Timer? trafficTimer;
+  int uploadBytes = 0;
+  int downloadBytes = 0;
+  int uploadSpeed = 0;
+  int downloadSpeed = 0;
   String configUpdatedAt = '';
   bool autoConnect = false;
   bool backgroundMode = false;
@@ -125,6 +131,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
         setState(() {
           vpnState = status.state;
           connected = status.state == 'CONNECTED';
+          uploadBytes = status.upload;
+          downloadBytes = status.download;
+          uploadSpeed = status.uploadSpeed;
+          downloadSpeed = status.downloadSpeed;
         });
       },
     );
@@ -137,6 +147,11 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     subscriptionTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => checkSubscriptionLive(),
+    );
+
+    trafficTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => sendTrafficStatus(),
     );
   }
 
@@ -175,6 +190,26 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   }
 
   
+  Future<void> sendTrafficStatus() async {
+    if (!connected) return;
+
+    try {
+      final device = await DeviceService().getDeviceData();
+      final deviceId = device['device_id'] ?? '';
+
+      if (deviceId.isEmpty) return;
+
+      await api.sendClientStatus(
+        deviceId: deviceId,
+        state: vpnState,
+        upload: uploadBytes,
+        download: downloadBytes,
+        uploadSpeed: uploadSpeed,
+        downloadSpeed: downloadSpeed,
+      );
+    } catch (_) {}
+  }
+
   Future<void> checkSubscriptionLive() async {
     if (!connected) return;
 
@@ -250,6 +285,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   @override
   void dispose() {
     subscriptionTimer?.cancel();
+    trafficTimer?.cancel();
     super.dispose();
   }
 

@@ -54,6 +54,30 @@ class ApiService {
     return data;
   }
 
+  Future<void> sendClientStatus({
+    required String deviceId,
+    required String state,
+    required int upload,
+    required int download,
+    required int uploadSpeed,
+    required int downloadSpeed,
+  }) async {
+    final url = Uri.parse('$baseUrl/client/status');
+
+    await http.post(
+      url,
+      headers: await _secureHeaders(),
+      body: jsonEncode({
+        'device_id': deviceId,
+        'state': state,
+        'upload': upload,
+        'download': download,
+        'upload_speed': uploadSpeed,
+        'download_speed': downloadSpeed,
+      }),
+    );
+  }
+
   Future<Map<String, dynamic>> getVpnConfig() async {
     final token = await _loadToken();
 
