@@ -29,6 +29,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
   String vpnState = 'DISCONNECTED';
   String appName = 'HAMADA NET vip';
   Timer? subscriptionTimer;
+  String configUpdatedAt = '';
   bool autoConnect = false;
   bool backgroundMode = false;
 
@@ -40,6 +41,7 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
       setState(() {
         config = result;
         appName = result['appName']?.toString() ?? 'HAMADA NET vip';
+        configUpdatedAt = result['configUpdatedAt']?.toString() ?? '';
       });
     } catch (e) {
       if (!mounted) return;
@@ -178,7 +180,32 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     if (!connected) return;
 
     try {
-      await api.getVpnConfig();
+      final latest = await api.getVpnConfig();
+
+      final latestUpdatedAt = latest['configUpdatedAt']?.toString() ?? '';
+      final latestConfig = latest['vmessUrl'] ?? latest['config'];
+      final currentConfig = config?['vmessUrl'] ?? config?['config'];
+
+      final changedByTime = latestUpdatedAt.isNotEmpty && latestUpdatedAt != configUpdatedAt;
+      final changedByConfig = latestConfig != null && latestConfig != currentConfig;
+
+      if (connected && (changedByTime || changedByConfig)) {
+        await flutterV2ray.stopV2Ray();
+
+        if (!mounted) return;
+
+        setState(() {
+          config = latest;
+          appName = latest['appName']?.toString() ?? 'HAMADA NET vip';
+          configUpdatedAt = latestUpdatedAt;
+          connected = false;
+          vpnState = 'DISCONNECTED';
+        });
+
+        await Future.delayed(const Duration(seconds: 1));
+        await startOrStopVpn();
+        return;
+      }
     } catch (e) {
       final msg = e.toString();
 
