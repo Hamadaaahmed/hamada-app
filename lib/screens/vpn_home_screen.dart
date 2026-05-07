@@ -301,10 +301,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
         child: Column(
           children: [
             const Spacer(),
-            Icon(
-              connected ? Icons.shield : Icons.shield_outlined,
-              size: 110,
-              color: connected ? Colors.greenAccent : Colors.white70,
+            Image.asset(
+              'assets/images/app_logo.png',
+              width: 130,
+              height: 130,
             ),
             const SizedBox(height: 20),
             Text(
