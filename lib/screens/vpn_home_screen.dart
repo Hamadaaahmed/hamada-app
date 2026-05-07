@@ -176,40 +176,59 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     }
   }
 
+  
   Future<void> checkSubscriptionLive() async {
     if (!connected) return;
 
     try {
       final latest = await api.getVpnConfig();
 
-      final latestUpdatedAt = latest['configUpdatedAt']?.toString() ?? '';
-      final latestConfig = latest['vmessUrl'] ?? latest['config'];
-      final currentConfig = config?['vmessUrl'] ?? config?['config'];
+      final latestUpdatedAt =
+          latest['configUpdatedAt']?.toString() ?? '';
 
-      final changedByTime = latestUpdatedAt.isNotEmpty && latestUpdatedAt != configUpdatedAt;
-      final changedByConfig = latestConfig != null && latestConfig != currentConfig;
+      final latestConfig =
+          latest['vmessUrl'] ?? latest['config'];
 
-      if (connected && (changedByTime || changedByConfig)) {
+      final currentConfig =
+          config?['vmessUrl'] ?? config?['config'];
+
+      final changedByTime =
+          latestUpdatedAt.isNotEmpty &&
+          latestUpdatedAt != configUpdatedAt;
+
+      final changedByConfig =
+          latestConfig != null &&
+          latestConfig.toString() != currentConfig?.toString();
+
+      if (changedByTime || changedByConfig) {
         await flutterV2ray.stopV2Ray();
 
         if (!mounted) return;
 
         setState(() {
           config = latest;
-          appName = latest['appName']?.toString() ?? 'HAMADA NET vip';
+          appName =
+              latest['appName']?.toString() ??
+              'HAMADA NET vip';
+
           configUpdatedAt = latestUpdatedAt;
+
           connected = false;
           vpnState = 'DISCONNECTED';
         });
 
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(
+          const Duration(seconds: 1),
+        );
+
         await startOrStopVpn();
         return;
       }
     } catch (e) {
       final msg = e.toString();
 
-      if (msg.contains('subscription expired') || msg.contains('403')) {
+      if (msg.contains('subscription expired') ||
+          msg.contains('403')) {
         await flutterV2ray.stopV2Ray();
 
         if (!mounted) return;
@@ -221,7 +240,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
 
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+          MaterialPageRoute(
+            builder: (_) =>
+                const SubscriptionScreen(),
+          ),
         );
       }
     }
