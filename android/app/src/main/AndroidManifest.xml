@@ -5,7 +5,7 @@
 
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <application android:usesCleartextTraffic="true"
+    <application android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="true"
         android:label="HAMADA NET vip"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
