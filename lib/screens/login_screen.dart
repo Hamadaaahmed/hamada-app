@@ -65,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Icon(Icons.vpn_lock, size: 90, color: Colors.greenAccent),
                 const SizedBox(height: 22),
                 const Text(
-                  'XRAY VPN',
+                  'vpn vip',
                   style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 14),

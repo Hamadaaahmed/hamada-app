@@ -259,6 +259,20 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
     setState(() => bypassApps = saved);
   }
 
+  Future<void> copyDeviceId() async {
+    final data = await _channel.invokeMapMethod<String, String>('getDeviceData');
+    final rawId = data?['android_id'] ?? '';
+
+    if (rawId.isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: rawId));
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم نسخ Device ID')),
+    );
+  }
+
   Future<void> openBypassApps() async {
     final result = await Navigator.push<List<String>>(
       context,
