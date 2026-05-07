@@ -339,6 +339,10 @@ class _VpnHomeScreenState extends State<VpnHomeScreen> {
               onChanged: setBackgroundMode,
             ),
             TextButton(
+              onPressed: copyDeviceId,
+              child: const Text('نسخ Device ID'),
+            ),
+            TextButton(
               onPressed: openBypassApps,
               child: Text('تطبيقات خارج VPN (${bypassApps.length})'),
             ),
