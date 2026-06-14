@@ -1,0 +1,74 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches:
+      - main
+      - fix/app-improvements
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Restore Android keystore
+        run: |
+          mkdir -p android/app/keys
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/keys/hamada-release.jks
+          cat > android/key.properties <<KEYPROPS
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=keys/hamada-release.jks
+          KEYPROPS
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Flutter test if present
+        run: |
+          if [ -d test ]; then
+            flutter test
+          else
+            echo "No test directory found, skipping tests"
+          fi
+
+      - name: Build APK
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          CHAT_BASE_URL: ${{ vars.CHAT_BASE_URL }}
+        run: |
+          BUILD_CMD="flutter build apk --release"
+          if [ -n "$API_BASE_URL" ]; then
+            BUILD_CMD="$BUILD_CMD --dart-define=API_BASE_URL=$API_BASE_URL"
+          fi
+          if [ -n "$CHAT_BASE_URL" ]; then
+            BUILD_CMD="$BUILD_CMD --dart-define=CHAT_BASE_URL=$CHAT_BASE_URL"
+          fi
+          echo "$BUILD_CMD"
+          eval "$BUILD_CMD"
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Hamada-Siana.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamada Siana
+          path: build/app/outputs/flutter-apk/Hamada-Siana.apk

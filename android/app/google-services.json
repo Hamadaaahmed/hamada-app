@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "294349978320",
+    "project_id": "hamada-siana",
+    "storage_bucket": "hamada-siana.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:294349978320:android:7f82e8a69ae98bb2273cd5",
+        "android_client_info": {
+          "package_name": "com.hamada.siana"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDFDrABjQNFe8NCe4QRjSe45vs67rpARXo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
